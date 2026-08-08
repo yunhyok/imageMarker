@@ -1,5 +1,7 @@
 # ImageMarker
 
+> 한국어 문서: [README.ko.md](README.ko.md)
+
 A Windows desktop tool for reviewing per-device RGB slice images and
 correcting their `Status` labels directly against the lab's Excel
 spreadsheets (with legacy CSV support retained).

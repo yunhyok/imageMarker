@@ -22,7 +22,8 @@ workbook is left untouched.
 
 - **Image + data review** — image canvas on top (aspect-ratio preserved,
   resizes with the window), full data table below (Name, Row, Node, ON,
-  OFF, ON/OFF, gm, Vth, Carrier Mobility, Status).
+  OFF, ON/OFF, gm, Vth, Carrier Mobility, Status); the two sections are
+  separated by a draggable divider so you can freely resize either one.
 - **Recursive folder loading** — "Load Folder" walks the selected folder
   *and every subfolder below it*, so pointing it at a day's measurement
   folder loads all of its `<sample>_slices` subfolders at once. If the
@@ -110,7 +111,7 @@ first with `build.bat` if not), locates the Inno Setup 6 compiler
 (`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
 
 ```
-dist\ImageMarker-Setup-1.1.0.exe
+dist\ImageMarker-Setup-1.2.0.exe
 ```
 
 The installer installs per-user by default (no administrator prompt,

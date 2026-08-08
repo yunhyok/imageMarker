@@ -9,7 +9,7 @@ ImageMarker는 장치별 이미지 슬라이스(`<name>_rgb_<row>_<node>.png`) �
 
 ## 주요 기능
 
-- **이미지 + 데이터 검토** — 상단에 이미지 캔버스(종횡비 유지, 창 크기에 맞춰 조정됨), 하단에 전체 데이터 테이블(Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, Status).
+- **이미지 + 데이터 검토** — 상단에 이미지 캔버스(종횡비 유지, 창 크기에 맞춰 조정됨), 하단에 전체 데이터 테이블(Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, Status). 두 영역은 드래그 가능한 구분선으로 나뉘어 있어 마우스로 어느 쪽이든 자유롭게 크기를 조절할 수 있습니다.
 - **재귀 폴더 로딩** — "Load Folder"는 선택한 폴더와 *그 아래 모든 하위 폴더*를 탐색하므로, 하루치 측정 폴더를 지정하면 그 안의 `<sample>_slices` 하위 폴더가 모두 한 번에 로드됩니다. 동일한 `(name, row, node)` 이미지가 여러 하위 폴더에 있으면 먼저 발견된 것이 유지되고(탐색은 알파벳 순서라 결정적입니다), 건너뛴 중복 개수는 정보 표시줄에 표시됩니다.
 - **Excel 인플레이스 Status 업데이트** — 실험실의 `.xlsx` 워크북을 열고 로드된 각 샘플을 시트의 `Name`에 매칭한 뒤(한 세션에서 여러 샘플을 각각의 `Name`에 매칭 가능), 상태를 검토/수정하면 "Save to Excel"이 매칭된 모든 샘플에 걸쳐 변경된 `Status` 셀만 다시 기록합니다. 첫 번째 기록 전에 일회성 `<file>.backup.xlsx` 안전 복사본이 생성됩니다.
 - **Status 필터링** — "Status filter" 드롭다운이 현재 존재하는 모든 고유 상태 값(`(blank)` 항목 포함)을 체크박스로 나열하며, All/None 빠른 선택 버튼을 제공합니다. 체크를 해제한 값은 테이블과 키보드 탐색 모두에서 숨겨집니다.
@@ -62,7 +62,7 @@ build_installer.bat
 `build_installer.bat`은 `dist\ImageMarker.exe`가 존재하는지 확인하고(존재하지 않는 경우 `build.bat`으로 먼저 빌드하십시오), Inno Setup 6 컴파일러(`ISCC.exe`)를 찾아 `installer\ImageMarker.iss`를 컴파일하여 다음을 생성합니다:
 
 ```
-dist\ImageMarker-Setup-1.1.0.exe
+dist\ImageMarker-Setup-1.2.0.exe
 ```
 
 이 설치 프로그램은 기본적으로 사용자별로 설치되며(관리자 권한 프롬프트가 표시되지 않지만, 대신 관리자/모든 사용자 설치를 선택할 수도 있습니다), 시작 메뉴 바로가기를 추가하고 선택적으로 바탕 화면 아이콘을 제공하며, 다른 설치된 프로그램과 마찬가지로 Windows 설정 → 앱에서 나중에 제거할 수 있습니다.

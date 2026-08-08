@@ -204,6 +204,7 @@ class ImageMarkerApp:
         self._rgb_image: Optional[Image.Image] = None
         self._rgb_photo: Optional[ImageTk.PhotoImage] = None
         self._overlay_job: Optional[str] = None
+        self._canvas_resize_job: Optional[str] = None
         self._suspend_tree_event = False
         self._iid_to_record: Dict[str, ImageRecord] = {}
         self._record_to_iid: Dict[int, str] = {}
@@ -224,20 +225,33 @@ class ImageMarkerApp:
     def setup_ui(self) -> None:
         self._build_menu()
 
-        self.image_frame = tk.Frame(self.root, bg="gray20", height=400)
-        self.image_frame.pack(side=tk.TOP, fill=tk.X)
-        self.image_frame.pack_propagate(False)
+        # A visible, grabbable sash between the image and the table lets the
+        # user trade space between the two sections freely instead of the
+        # image height being fixed by a resize handler (tk.PanedWindow, not
+        # ttk, so the sash is drawn and draggable).
+        self.paned = tk.PanedWindow(
+            self.root, orient=tk.VERTICAL, sashwidth=6, sashrelief=tk.RAISED, bg="gray50"
+        )
+        self.paned.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.image_frame = tk.Frame(self.paned, bg="gray20")
+        self.paned.add(self.image_frame, minsize=120, stretch="always")
 
         self.rgb_canvas = tk.Canvas(self.image_frame, bg="gray40", highlightthickness=0)
         self.rgb_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.rgb_canvas.bind("<Configure>", self.on_canvas_resize)
 
         self.marker_label = tk.Label(
             self.image_frame, text="", font=("Arial", 72, "bold"), bg="gray20", fg="white"
         )
         self.marker_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        self.control_frame = tk.Frame(self.root)
-        self.control_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+        self.control_frame = tk.Frame(self.paned)
+        self.paned.add(self.control_frame, minsize=180, stretch="always")
+
+        # tk.PanedWindow has no initial-ratio option; give the image pane
+        # roughly the upper half once the window has real dimensions.
+        self.root.after_idle(self._set_initial_sash)
 
         toolbar = tk.Frame(self.control_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
@@ -319,7 +333,24 @@ class ImageMarkerApp:
         table_frame.grid_columnconfigure(0, weight=1)
 
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
-        self.root.bind("<Configure>", self.on_resize)
+
+    def _set_initial_sash(self) -> None:
+        """Place the sash so the image pane starts at roughly the upper half.
+
+        ``tk.PanedWindow`` has no initial-ratio option, so this runs once the
+        event loop is idle (after the window has real dimensions) and moves
+        the single sash (index 0) to the vertical midpoint. If the window
+        hasn't been laid out yet, retry shortly instead of placing at 0.
+        """
+        try:
+            self.paned.update_idletasks()
+            height = self.paned.winfo_height()
+            if height <= 1:
+                self.root.after(50, self._set_initial_sash)
+                return
+            self.paned.sash_place(0, 0, height // 2)
+        except tk.TclError:  # window closed before this ran
+            return
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self.root)
@@ -857,15 +888,23 @@ class ImageMarkerApp:
         new_height = max(1, int(image_height * scale))
         return image.resize((new_width, new_height), Image.LANCZOS)
 
-    def on_resize(self, event: "tk.Event") -> None:
-        try:
-            if event.widget is self.root:
-                width = self.root.winfo_width()
-                height = self.root.winfo_height()
-                image_size = min(width, height - 200)
-                self.image_frame.config(height=max(image_size, 100))
-        except tk.TclError:  # window being torn down
-            return
+    def on_canvas_resize(self, event: "tk.Event") -> None:
+        """Redraw the current image when the canvas itself changes size.
+
+        Fires for window resizes and for sash drags (which resize the image
+        pane, and therefore the canvas packed into it). Debounced with a
+        short ``after`` so dragging the sash stays smooth instead of
+        re-decoding the image on every intermediate pixel.
+        """
+        if self._canvas_resize_job is not None:
+            try:
+                self.root.after_cancel(self._canvas_resize_job)
+            except Exception:  # pragma: no cover - defensive
+                pass
+        self._canvas_resize_job = self.root.after(30, self._do_canvas_resize)
+
+    def _do_canvas_resize(self) -> None:
+        self._canvas_resize_job = None
         if self._rgb_image is not None:
             self.display_image()
 

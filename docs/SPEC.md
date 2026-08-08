@@ -80,7 +80,9 @@ imageMarker/
   file it was found at. A repeated `(name,row,node)` keeps the first file
   encountered; the rest are counted and the count is reported in the post-load
   summary (info bar).
-- Image canvas on top (aspect-ratio preserved, resizes with window), table below
+- Image canvas on top (aspect-ratio preserved, resizes with window), table
+  below, the two sections split by a draggable sash (`tk.PanedWindow`) so
+  either can be freely resized
 - Table columns: Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, Status
   (metric columns empty until an Excel/CSV is loaded; keep widths sensible)
 - Keyboard: ↑/↓ navigate ±1, Ctrl ±10, Shift ±100, PgUp/PgDn ±1000

@@ -1,0 +1,1004 @@
+"""Tkinter user interface for ImageMarker.
+
+Everything tkinter/Pillow related lives in this module; :mod:`data_model`,
+:mod:`excel_io` and :mod:`csv_io` stay GUI free so they can be unit tested.
+Importing this module has no side effects - no window is created until
+:func:`main` runs.
+"""
+
+from __future__ import annotations
+
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from PIL import Image, ImageTk
+
+from . import __version__
+from .csv_io import BASE_HEADERS, load_label_csv, save_label_csv
+from .data_model import (
+    BLANK_DISPLAY,
+    STATUS_COLORS,
+    STATUS_NO_ACTIVE,
+    STATUS_NO_GATE_EFFECT,
+    STATUS_OPEN,
+    STATUS_OVERLAY_COLORS,
+    STATUS_PASS,
+    STATUS_SHORT,
+    ImageRecord,
+    ImageStore,
+    format_metric,
+    status_display,
+)
+from .excel_io import ExcelError, ExcelFileLockedError, ExcelSource
+
+APP_TITLE = "ImageMarker - RGB Viewer"
+
+#: (column id, heading, width, anchor, sort key)
+TABLE_COLUMNS: Tuple[Tuple[str, str, int, str, str], ...] = (
+    ("mark", "", 26, "center", "dirty"),
+    ("name", "Name", 260, "w", "name"),
+    ("row", "Row", 55, "center", "row"),
+    ("node", "Node", 55, "center", "node"),
+    ("on", "ON", 95, "e", "ON"),
+    ("off", "OFF", 95, "e", "OFF"),
+    ("onoff", "ON/OFF", 80, "e", "ON/OFF"),
+    ("gm", "gm", 85, "e", "gm"),
+    ("vth", "Vth", 85, "e", "Vth"),
+    ("mobility", "Carrier Mobility", 110, "e", "Carrier Mobility"),
+    ("status", "Status", 130, "center", "status"),
+)
+
+#: Status hotkeys (key symbol -> status value; ``None`` clears the cell).
+STATUS_HOTKEYS: Tuple[Tuple[str, Optional[str]], ...] = (
+    ("<Left>", STATUS_NO_ACTIVE),
+    ("<Right>", STATUS_OPEN),
+    ("<Key-1>", STATUS_PASS),
+    ("<Key-2>", STATUS_NO_ACTIVE),
+    ("<Key-3>", STATUS_NO_GATE_EFFECT),
+    ("<Key-4>", STATUS_OPEN),
+    ("<Key-5>", STATUS_SHORT),
+    ("<Key-0>", None),
+    ("<Delete>", None),
+)
+
+NAV_HINT = (
+    "← No Active | → Open | 1 Pass  2 No Active  3 No Gate Effect  "
+    "4 Open  5 Short  0/Del clear | ↑↓ Navigate | Ctrl±10 | "
+    "Shift±100 | PgUp/Dn±1000"
+)
+
+
+class NameSelectDialog(tk.Toplevel):
+    """Modal listbox dialog used to pick the Excel ``Name`` for a folder."""
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        names: Sequence[Tuple[str, int]],
+        suggested: Optional[str] = None,
+        image_prefix: Optional[str] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.title("Select the Excel data set")
+        self.resizable(True, True)
+        self.result: Optional[str] = None
+        self._names = list(names)
+
+        header = "Image folder: %s" % (image_prefix or "(unknown)")
+        tk.Label(self, text=header, anchor="w", font=("Arial", 9)).pack(
+            fill=tk.X, padx=10, pady=(10, 0)
+        )
+        tk.Label(
+            self,
+            text="Select the Excel 'Name' that corresponds to these images:",
+            anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=(6, 4))
+
+        body = tk.Frame(self)
+        body.pack(fill=tk.BOTH, expand=True, padx=10)
+        scrollbar = ttk.Scrollbar(body, orient="vertical")
+        self.listbox = tk.Listbox(
+            body, height=min(12, max(4, len(self._names))), exportselection=False
+        )
+        self.listbox.config(yscrollcommand=scrollbar.set)
+        scrollbar.config(command=self.listbox.yview)
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        preselect = 0
+        for index, (name, count) in enumerate(self._names):
+            self.listbox.insert(tk.END, "%s   (%d rows)" % (name, count))
+            if suggested is not None and name == suggested:
+                preselect = index
+        if self._names:
+            self.listbox.selection_set(preselect)
+            self.listbox.see(preselect)
+
+        note = (
+            "Auto-suggested by sample number."
+            if suggested
+            else "No automatic suggestion - please choose manually."
+        )
+        tk.Label(self, text=note, anchor="w", fg="gray30", font=("Arial", 8)).pack(
+            fill=tk.X, padx=10, pady=(4, 0)
+        )
+
+        buttons = tk.Frame(self)
+        buttons.pack(fill=tk.X, padx=10, pady=10)
+        tk.Button(buttons, text="Cancel", width=10, command=self._on_cancel).pack(
+            side=tk.RIGHT
+        )
+        tk.Button(buttons, text="OK", width=10, command=self._on_ok).pack(
+            side=tk.RIGHT, padx=(0, 6)
+        )
+
+        self.listbox.bind("<Double-Button-1>", lambda event: self._on_ok())
+        self.bind("<Return>", lambda event: self._on_ok())
+        self.bind("<Escape>", lambda event: self._on_cancel())
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        self.transient(parent)
+        self.update_idletasks()
+        self.grab_set()
+        self.listbox.focus_set()
+
+    def _on_ok(self) -> None:
+        selection = self.listbox.curselection()
+        if selection:
+            self.result = self._names[selection[0]][0]
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+
+class ImageMarkerApp:
+    """The main application window."""
+
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.root.title(APP_TITLE)
+        self.root.geometry("1400x900")
+
+        self.store = ImageStore()
+        self.image_folder: Optional[str] = None
+        self.excel: Optional[ExcelSource] = None
+        self.excel_name: Optional[str] = None
+        self.csv_headers: List[str] = list(BASE_HEADERS)
+        self.source_path: Optional[str] = None
+
+        self._rgb_image: Optional[Image.Image] = None
+        self._rgb_photo: Optional[ImageTk.PhotoImage] = None
+        self._overlay_job: Optional[str] = None
+        self._suspend_tree_event = False
+        self._iid_to_record: Dict[str, ImageRecord] = {}
+        self._record_to_iid: Dict[int, str] = {}
+        self._selected_records: List[ImageRecord] = []
+        self._filter_vars: Dict[str, tk.BooleanVar] = {}
+        self._filter_lookup: Dict[str, Optional[str]] = {}
+        self._status_tags: Dict[Optional[str], str] = {}
+
+        self.setup_ui()
+        self.bind_keys()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.update_info()
+
+    # ------------------------------------------------------------------ #
+    # UI construction
+    # ------------------------------------------------------------------ #
+
+    def setup_ui(self) -> None:
+        self._build_menu()
+
+        self.image_frame = tk.Frame(self.root, bg="gray20", height=400)
+        self.image_frame.pack(side=tk.TOP, fill=tk.X)
+        self.image_frame.pack_propagate(False)
+
+        self.rgb_canvas = tk.Canvas(self.image_frame, bg="gray40", highlightthickness=0)
+        self.rgb_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.marker_label = tk.Label(
+            self.image_frame, text="", font=("Arial", 72, "bold"), bg="gray20", fg="white"
+        )
+        self.marker_label.place(relx=0.5, rely=0.5, anchor="center")
+
+        self.control_frame = tk.Frame(self.root)
+        self.control_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+
+        toolbar = tk.Frame(self.control_frame)
+        toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+
+        tk.Button(
+            toolbar,
+            text="Load Folder",
+            command=self.load_folder,
+            font=("Arial", 10, "bold"),
+            width=12,
+        ).pack(side=tk.LEFT, padx=3)
+        tk.Button(
+            toolbar, text="Open Excel...", command=self.open_excel, font=("Arial", 10), width=12
+        ).pack(side=tk.LEFT, padx=3)
+        self.save_excel_button = tk.Button(
+            toolbar,
+            text="Save to Excel",
+            command=self.save_excel,
+            font=("Arial", 10, "bold"),
+            width=12,
+            state=tk.DISABLED,
+        )
+        self.save_excel_button.pack(side=tk.LEFT, padx=3)
+        tk.Button(
+            toolbar, text="Load CSV", command=self.load_csv, font=("Arial", 10), width=10
+        ).pack(side=tk.LEFT, padx=3)
+        tk.Button(
+            toolbar, text="Save CSV", command=self.save_csv, font=("Arial", 10), width=10
+        ).pack(side=tk.LEFT, padx=3)
+
+        self.filter_button = tk.Menubutton(
+            toolbar, text="Status filter", relief=tk.RAISED, width=14
+        )
+        self.filter_menu = tk.Menu(self.filter_button, tearoff=False)
+        self.filter_button.config(menu=self.filter_menu)
+        self.filter_button.pack(side=tk.LEFT, padx=(12, 3))
+        self.rebuild_filter_menu()
+
+        self.info_label = tk.Label(
+            toolbar, text="No folder loaded", font=("Arial", 9), anchor="w"
+        )
+        self.info_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+
+        hint = tk.Label(self.control_frame, text=NAV_HINT, font=("Arial", 8), fg="blue")
+        hint.pack(side=tk.TOP, fill=tk.X, padx=5)
+
+        table_frame = tk.Frame(self.control_frame)
+        table_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        vsb = ttk.Scrollbar(table_frame, orient="vertical")
+        hsb = ttk.Scrollbar(table_frame, orient="horizontal")
+
+        self.tree = ttk.Treeview(
+            table_frame,
+            columns=[column[0] for column in TABLE_COLUMNS],
+            show="headings",
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set,
+            selectmode="extended",
+        )
+        vsb.config(command=self.tree.yview)
+        hsb.config(command=self.tree.xview)
+
+        for column_id, heading, width, anchor, sort_key in TABLE_COLUMNS:
+            self.tree.heading(
+                column_id,
+                text=heading,
+                command=lambda key=sort_key: self.sort_column(key),
+            )
+            self.tree.column(column_id, width=width, anchor=anchor, stretch=False)
+        self.tree.column("name", stretch=True)
+
+        self.tree.tag_configure("dirty", font=("Arial", 9, "bold"))
+
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.root.bind("<Configure>", self.on_resize)
+
+    def _build_menu(self) -> None:
+        menubar = tk.Menu(self.root)
+        file_menu = tk.Menu(menubar, tearoff=False)
+        file_menu.add_command(label="Load Image Folder...", command=self.load_folder)
+        file_menu.add_separator()
+        file_menu.add_command(label="Open Excel...", command=self.open_excel)
+        file_menu.add_command(label="Save to Excel", command=self.save_excel)
+        file_menu.add_separator()
+        file_menu.add_command(label="Load CSV...", command=self.load_csv)
+        file_menu.add_command(label="Save CSV...", command=self.save_csv)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.on_close)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(label="About", command=self._show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.root.config(menu=menubar)
+        self.file_menu = file_menu
+
+    def _show_about(self) -> None:
+        messagebox.showinfo(
+            "About ImageMarker",
+            "ImageMarker %s\n\nReview RGB slice images and correct their Status "
+            "labels.\nOnly the Status column of the source workbook is ever "
+            "modified." % __version__,
+        )
+
+    def bind_keys(self) -> None:
+        for sequence, value in STATUS_HOTKEYS:
+            self.root.bind(sequence, lambda event, v=value: self.set_status(v))
+
+        self.root.bind("<Up>", lambda event: self.navigate(-1))
+        self.root.bind("<Down>", lambda event: self.navigate(1))
+        self.root.bind("<Control-Up>", lambda event: self.navigate(-10))
+        self.root.bind("<Control-Down>", lambda event: self.navigate(10))
+        self.root.bind("<Shift-Up>", lambda event: self.navigate(-100))
+        self.root.bind("<Shift-Down>", lambda event: self.navigate(100))
+        self.root.bind("<Prior>", lambda event: self.navigate(-1000))
+        self.root.bind("<Next>", lambda event: self.navigate(1000))
+
+    # ------------------------------------------------------------------ #
+    # Loading
+    # ------------------------------------------------------------------ #
+
+    def load_folder(self) -> None:
+        if not self.confirm_discard_changes("Loading a new folder"):
+            return
+        folder = filedialog.askdirectory(title="Select Image Folder")
+        if not folder:
+            return
+        try:
+            count = self.store.load_folder(folder)
+        except OSError as exc:
+            messagebox.showerror("Error", "Failed to read the folder:\n%s" % exc)
+            return
+
+        if not count:
+            messagebox.showwarning("No Images", "No valid RGB images found in folder")
+            return
+
+        self.image_folder = folder
+        self.excel = None
+        self.excel_name = None
+        self.source_path = None
+        self.csv_headers = list(BASE_HEADERS)
+        self.rebuild_filter_menu()
+        self.update_table()
+        self.load_current_image()
+        self.update_info()
+
+    @property
+    def image_prefix(self) -> Optional[str]:
+        """Common ``<name>`` part of the loaded images (used for suggestions)."""
+        records = self.store.records
+        if records:
+            return records[0].name
+        if self.image_folder:
+            return os.path.basename(self.image_folder)
+        return None
+
+    def open_excel(self) -> None:
+        if not self.store.records:
+            messagebox.showwarning("No Data", "Please load an image folder first")
+            return
+        if not self.confirm_discard_changes("Loading another data file"):
+            return
+
+        path = filedialog.askopenfilename(
+            title="Open Excel data file",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+
+        try:
+            source = ExcelSource.load(path)
+        except ExcelError as exc:
+            messagebox.showerror("Excel", str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            messagebox.showerror("Excel", "Failed to load the workbook:\n%s" % exc)
+            return
+
+        names = source.names()
+        if not names:
+            messagebox.showerror("Excel", "The selected sheet contains no data rows.")
+            return
+
+        suggested = source.suggest_name(self.image_prefix)
+        dialog = NameSelectDialog(
+            self.root, names, suggested=suggested, image_prefix=self.image_prefix
+        )
+        self.root.wait_window(dialog)
+        chosen = dialog.result
+        if chosen is None:
+            return
+
+        index = source.index_for_name(chosen)
+        matched, unmatched = self.store.apply_excel_rows(index)
+
+        self.excel = source
+        self.excel_name = chosen
+        self.source_path = path
+
+        self.rebuild_filter_menu()
+        self.store.ensure_current_visible()
+        self.update_table()
+        self.load_current_image()
+        self.update_info()
+
+        unused = len(index) - matched
+        messagebox.showinfo(
+            "Excel loaded",
+            "Sheet: %s\nName: %s\n\nMatched images: %d\nImages without data: %d\n"
+            "Excel rows without an image: %d"
+            % (source.sheet_name, chosen, matched, unmatched, max(0, unused)),
+        )
+
+    def save_excel(self) -> None:
+        if self.excel is None:
+            messagebox.showwarning("No Excel", "No Excel data file is loaded.")
+            return
+        dirty = self.store.dirty_records()
+        if not dirty:
+            messagebox.showinfo("Save to Excel", "There are no unsaved changes.")
+            return
+
+        try:
+            written, backup_created, skipped = self.excel.write_records(dirty)
+        except ExcelFileLockedError as exc:
+            messagebox.showerror("File locked", str(exc))
+            return
+        except ExcelError as exc:
+            messagebox.showerror("Save failed", str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            messagebox.showerror("Save failed", "Failed to save the workbook:\n%s" % exc)
+            return
+
+        self.store.clear_dirty([record for record in dirty if record.can_write_back])
+        self.update_table()
+        self.update_info()
+
+        message = "Updated %d Status cell(s) in %s." % (
+            written,
+            os.path.basename(self.excel.path),
+        )
+        if backup_created:
+            message += "\nBackup created: %s" % os.path.basename(self.excel.backup_path)
+        if skipped:
+            message += (
+                "\n%d changed row(s) had no Excel source row and were not written."
+                % skipped
+            )
+        messagebox.showinfo("Saved", message)
+
+    def load_csv(self) -> None:
+        if not self.store.records:
+            messagebox.showwarning("No Data", "Please load a folder first")
+            return
+        if not self.confirm_discard_changes("Loading another data file"):
+            return
+
+        path = filedialog.askopenfilename(
+            title="Load Label CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+
+        try:
+            data = load_label_csv(path)
+        except Exception as exc:
+            messagebox.showerror("Error", "Failed to load CSV: %s" % exc)
+            return
+
+        self.csv_headers = data.headers
+        matched = self.store.apply_csv_labels(data.labels, data.extras)
+        self.excel = None
+        self.excel_name = None
+        self.source_path = path
+
+        self.rebuild_filter_menu()
+        self.store.ensure_current_visible()
+        self.update_table()
+        self.load_current_image()
+        self.update_info()
+        messagebox.showinfo(
+            "Success", "Loaded %d labels from %s" % (matched, os.path.basename(path))
+        )
+
+    def save_csv(self) -> bool:
+        if not self.store.records:
+            messagebox.showwarning("No Data", "No data to save")
+            return False
+
+        path = filedialog.asksaveasfilename(
+            title="Save Label CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return False
+
+        try:
+            count = save_label_csv(path, self.store.records, self.csv_headers)
+        except Exception as exc:
+            messagebox.showerror("Error", "Failed to save CSV: %s" % exc)
+            return False
+
+        self.store.clear_dirty()
+        self.update_table()
+        self.update_info()
+        messagebox.showinfo(
+            "Success", "Saved %d labels to %s" % (count, os.path.basename(path))
+        )
+        return True
+
+    # ------------------------------------------------------------------ #
+    # Filtering
+    # ------------------------------------------------------------------ #
+
+    def rebuild_filter_menu(self) -> None:
+        """Recreate the checkbox menu from the status values currently present."""
+        statuses = self.store.unique_statuses()
+        previous = {key: var.get() for key, var in self._filter_vars.items()}
+
+        self._filter_vars = {}
+        self._filter_lookup = {}
+        self.filter_menu.delete(0, tk.END)
+
+        for status in statuses:
+            key = status_display(status)
+            variable = tk.BooleanVar(value=previous.get(key, True))
+            self._filter_vars[key] = variable
+            self._filter_lookup[key] = status
+            self.filter_menu.add_checkbutton(
+                label=key, variable=variable, command=self.on_filter_changed
+            )
+
+        if statuses:
+            self.filter_menu.add_separator()
+        self.filter_menu.add_command(label="All", command=lambda: self.set_all_filters(True))
+        self.filter_menu.add_command(label="None", command=lambda: self.set_all_filters(False))
+
+        self.apply_filter(update_view=False)
+
+    def set_all_filters(self, value: bool) -> None:
+        for variable in self._filter_vars.values():
+            variable.set(value)
+        self.on_filter_changed()
+
+    def selected_filter_values(self) -> List[Optional[str]]:
+        return [
+            self._filter_lookup[key]
+            for key, variable in self._filter_vars.items()
+            if variable.get()
+        ]
+
+    def apply_filter(self, update_view: bool = True) -> None:
+        values = self.selected_filter_values()
+        if len(values) == len(self._filter_vars):
+            self.store.set_filter(None)
+        else:
+            self.store.set_filter(values)
+        self.store.ensure_current_visible()
+        if update_view:
+            self.update_table()
+            self.load_current_image()
+            self.update_info()
+
+    def on_filter_changed(self) -> None:
+        self.apply_filter(update_view=True)
+        self.update_filter_button()
+
+    def update_filter_button(self) -> None:
+        if self.store.filter_active:
+            self.filter_button.config(text="Filter: %d/%d" % (
+                self.store.visible_count,
+                len(self.store),
+            ))
+        else:
+            self.filter_button.config(text="Status filter")
+
+    # ------------------------------------------------------------------ #
+    # Table
+    # ------------------------------------------------------------------ #
+
+    def _row_values(self, record: ImageRecord) -> Tuple[str, ...]:
+        return (
+            "*" if record.dirty else "",
+            record.name,
+            str(record.row),
+            str(record.node),
+            format_metric(record.metric("ON")),
+            format_metric(record.metric("OFF")),
+            format_metric(record.metric("ON/OFF")),
+            format_metric(record.metric("gm")),
+            format_metric(record.metric("Vth")),
+            format_metric(record.metric("Carrier Mobility")),
+            record.status_text,
+        )
+
+    def _status_tag(self, status: Optional[str]) -> str:
+        tag = self._status_tags.get(status)
+        if tag is None:
+            tag = "status_%d" % len(self._status_tags)
+            self._status_tags[status] = tag
+            self.tree.tag_configure(tag, background=STATUS_COLORS.get(status, "white"))
+        return tag
+
+    def _row_tags(self, record: ImageRecord) -> Tuple[str, ...]:
+        tags = [self._status_tag(record.status)]
+        if record.dirty:
+            tags.append("dirty")
+        return tuple(tags)
+
+    def update_table(self) -> None:
+        """Rebuild the whole table from the filtered record list."""
+        self._suspend_tree_event = True
+        try:
+            children = self.tree.get_children()
+            if children:
+                self.tree.delete(*children)
+            self._iid_to_record = {}
+            self._record_to_iid = {}
+
+            for index, record in enumerate(self.store.visible()):
+                iid = "R%d" % index
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=iid,
+                    values=self._row_values(record),
+                    tags=self._row_tags(record),
+                )
+                self._iid_to_record[iid] = record
+                self._record_to_iid[id(record)] = iid
+        finally:
+            self._suspend_tree_event = False
+
+        self.restore_selection()
+
+    def refresh_record_row(self, record: ImageRecord) -> None:
+        """Update a single already displayed row (fast path after an edit)."""
+        iid = self._record_to_iid.get(id(record))
+        if iid is None or not self.tree.exists(iid):
+            return
+        self.tree.item(iid, values=self._row_values(record), tags=self._row_tags(record))
+
+    def restore_selection(self) -> None:
+        """Reselect the previously selected records that are still visible."""
+        visible = set(id(record) for record in self.store.visible())
+        wanted = [
+            record for record in self._selected_records if id(record) in visible
+        ]
+        current = self.store.current_record
+        if current is not None and id(current) in visible and current not in wanted:
+            wanted.append(current)
+
+        iids = [
+            self._record_to_iid[id(record)]
+            for record in wanted
+            if id(record) in self._record_to_iid
+        ]
+        self._suspend_tree_event = True
+        try:
+            if iids:
+                self.tree.selection_set(iids)
+            else:
+                self.tree.selection_remove(self.tree.selection())
+        finally:
+            self._suspend_tree_event = False
+
+        self._selected_records = wanted
+        focus_record = current if current is not None else (wanted[0] if wanted else None)
+        if focus_record is not None:
+            iid = self._record_to_iid.get(id(focus_record))
+            if iid is not None and self.tree.exists(iid):
+                self.tree.focus(iid)
+                self.tree.see(iid)
+
+    def select_current(self) -> None:
+        """Make the current record the one and only selection."""
+        record = self.store.current_record
+        if record is None:
+            return
+        iid = self._record_to_iid.get(id(record))
+        if iid is None or not self.tree.exists(iid):
+            return
+        self._suspend_tree_event = True
+        try:
+            self.tree.selection_set(iid)
+            self.tree.focus(iid)
+            self.tree.see(iid)
+        finally:
+            self._suspend_tree_event = False
+        self._selected_records = [record]
+
+    def on_tree_select(self, event: "tk.Event") -> None:
+        if self._suspend_tree_event:
+            return
+        selection = self.tree.selection()
+        records = [
+            self._iid_to_record[iid] for iid in selection if iid in self._iid_to_record
+        ]
+        self._selected_records = records
+        if not records:
+            return
+        if records[0] is not self.store.current_record:
+            self.store.current_record = records[0]
+            self.load_current_image()
+            self.update_info()
+
+    def selected_records(self) -> List[ImageRecord]:
+        if self._selected_records:
+            return list(self._selected_records)
+        current = self.store.current_record
+        return [current] if current is not None else []
+
+    def sort_column(self, column: str) -> None:
+        if not self.store.records:
+            return
+        current = self.store.current_record
+        self.store.sort_by(column)
+        # The current record is tracked by identity, so it survives the sort.
+        self.store.current_record = current
+        self.store.ensure_current_visible()
+        self.update_table()
+        self.update_info()
+
+    # ------------------------------------------------------------------ #
+    # Image display
+    # ------------------------------------------------------------------ #
+
+    def load_current_image(self) -> None:
+        record = self.store.current_record
+        if record is None or not record.path:
+            self._rgb_image = None
+            self.rgb_canvas.delete("all")
+            return
+        try:
+            self._rgb_image = Image.open(record.path)
+            self.display_image()
+        except Exception as exc:
+            self._rgb_image = None
+            self.rgb_canvas.delete("all")
+            self.rgb_canvas.create_text(
+                10, 10, anchor="nw", fill="white", text="Failed to load image: %s" % exc
+            )
+
+    def display_image(self) -> None:
+        if self._rgb_image is None:
+            return
+        try:
+            if not self.rgb_canvas.winfo_exists():
+                return
+            width = self.rgb_canvas.winfo_width()
+            height = self.rgb_canvas.winfo_height()
+            if width <= 1 or height <= 1:
+                # Canvas not laid out yet - retry once it is.
+                self.root.after(100, self.display_image)
+                return
+            resized = self.resize_image_to_fit(self._rgb_image, width, height)
+            self._rgb_photo = ImageTk.PhotoImage(resized)
+            self.rgb_canvas.delete("all")
+            self.rgb_canvas.create_image(
+                width // 2, height // 2, image=self._rgb_photo, anchor="center"
+            )
+        except tk.TclError:
+            # Widget destroyed while a redraw was pending (e.g. on close).
+            return
+
+    @staticmethod
+    def resize_image_to_fit(
+        image: Image.Image, max_width: int, max_height: int
+    ) -> Image.Image:
+        """Scale ``image`` into the box, preserving the aspect ratio."""
+        image_width, image_height = image.size
+        if image_width <= 0 or image_height <= 0:
+            return image
+        scale = min(max_width / image_width, max_height / image_height) * 0.95
+        new_width = max(1, int(image_width * scale))
+        new_height = max(1, int(image_height * scale))
+        return image.resize((new_width, new_height), Image.LANCZOS)
+
+    def on_resize(self, event: "tk.Event") -> None:
+        try:
+            if event.widget is self.root:
+                width = self.root.winfo_width()
+                height = self.root.winfo_height()
+                image_size = min(width, height - 200)
+                self.image_frame.config(height=max(image_size, 100))
+        except tk.TclError:  # window being torn down
+            return
+        if self._rgb_image is not None:
+            self.display_image()
+
+    def flash_status(self, value: Optional[str]) -> None:
+        """Flash the applied status over the image for one second."""
+        text = value if value else BLANK_DISPLAY
+        color = STATUS_OVERLAY_COLORS.get(value, "white")
+        self.marker_label.config(text=text, fg=color)
+        if self._overlay_job is not None:
+            try:
+                self.root.after_cancel(self._overlay_job)
+            except Exception:  # pragma: no cover - defensive
+                pass
+        self._overlay_job = self.root.after(1000, self._clear_overlay)
+
+    def _clear_overlay(self) -> None:
+        self._overlay_job = None
+        self.marker_label.config(text="")
+
+    # ------------------------------------------------------------------ #
+    # Editing / navigation
+    # ------------------------------------------------------------------ #
+
+    def set_status(self, value: Optional[str]) -> None:
+        """Apply ``value`` to every selected row (any status may be changed)."""
+        targets = self.selected_records()
+        if not targets:
+            return
+
+        changed = self.store.apply_status(targets, value)
+        if not changed:
+            return
+
+        # The dropdown always mirrors the status values actually present, so it
+        # is rebuilt whenever a value appears or disappears.
+        present = {status_display(status) for status in self.store.unique_statuses()}
+        needs_menu_rebuild = present != set(self._filter_vars)
+        if needs_menu_rebuild:
+            self.rebuild_filter_menu()
+
+        # Re-apply the filter right away; rows that no longer match disappear.
+        hidden = [record for record in changed if not self.store.matches_filter(record)]
+        if hidden or needs_menu_rebuild:
+            self.store.ensure_current_visible()
+            self.update_table()
+            self.load_current_image()
+        else:
+            for record in changed:
+                self.refresh_record_row(record)
+
+        self.update_info()
+        self.flash_status(value)
+
+    def navigate(self, delta: int) -> None:
+        if not self.store.visible():
+            return
+        before = self.store.current_record
+        record = self.store.navigate(delta)
+        if record is None or record is before:
+            return
+        self.select_current()
+        self.load_current_image()
+        self.update_info()
+
+    # ------------------------------------------------------------------ #
+    # Info bar / title
+    # ------------------------------------------------------------------ #
+
+    def update_info(self) -> None:
+        total = len(self.store)
+        dirty_count = self.store.dirty_count
+
+        if not total:
+            self.info_label.config(text="No folder loaded")
+            self.root.title(APP_TITLE)
+            self.save_excel_button.config(state=tk.DISABLED)
+            self.update_filter_button()
+            return
+
+        visible = self.store.visible()
+        position = self.store.current_index
+        parts = [
+            "Image %d/%d" % (position + 1 if position >= 0 else 0, len(visible)),
+        ]
+
+        full_counts = self.store.status_counts()
+        visible_counts = self.store.status_counts(visible)
+        filtering = self.store.filter_active
+        count_parts = []
+        for status in self.store.unique_statuses():
+            label = status_display(status)
+            if filtering:
+                count_parts.append(
+                    "%s: %d/%d"
+                    % (label, visible_counts.get(status, 0), full_counts.get(status, 0))
+                )
+            else:
+                count_parts.append("%s: %d" % (label, full_counts.get(status, 0)))
+        if count_parts:
+            parts.append(" | ".join(count_parts))
+
+        if filtering:
+            parts.append(
+                "Filter: %s — %d/%d"
+                % (self.store.filter_description(), len(visible), total)
+            )
+
+        if self.image_folder:
+            parts.append("Folder: %s" % os.path.basename(self.image_folder))
+        if self.source_path:
+            source = os.path.basename(self.source_path)
+            if self.excel_name:
+                source += " [%s]" % self.excel_name
+            parts.append("Source: %s" % source)
+        parts.append("Unsaved: %d" % dirty_count)
+
+        self.info_label.config(text=" | ".join(parts))
+
+        title = APP_TITLE
+        if self.image_folder:
+            title += " - %s" % os.path.basename(self.image_folder)
+        if dirty_count:
+            title = "*" + title + " (%d unsaved)" % dirty_count
+        self.root.title(title)
+
+        self.save_excel_button.config(
+            state=tk.NORMAL if (self.excel is not None and dirty_count) else tk.DISABLED
+        )
+        self.update_filter_button()
+
+    # ------------------------------------------------------------------ #
+    # Closing
+    # ------------------------------------------------------------------ #
+
+    def save_current_source(self) -> bool:
+        """Save through whichever source is loaded; ``True`` when saved."""
+        if self.excel is not None:
+            dirty = self.store.dirty_records()
+            if not dirty:
+                return True
+            try:
+                self.excel.write_records(dirty)
+            except ExcelFileLockedError as exc:
+                messagebox.showerror("File locked", str(exc))
+                return False
+            except ExcelError as exc:
+                messagebox.showerror("Save failed", str(exc))
+                return False
+            self.store.clear_dirty(
+                [record for record in dirty if record.can_write_back]
+            )
+            self.update_info()
+            return True
+        return self.save_csv()
+
+    def confirm_discard_changes(self, action: str) -> bool:
+        """Ask before throwing unsaved changes away; ``True`` to continue."""
+        if not self.store.dirty_count:
+            return True
+        answer = messagebox.askyesnocancel(
+            "Unsaved changes",
+            "%s will discard %d unsaved change(s).\n\n"
+            "Yes = save first, No = discard, Cancel = stay here."
+            % (action, self.store.dirty_count),
+        )
+        if answer is None:
+            return False
+        if answer:
+            return self.save_current_source()
+        return True
+
+    def on_close(self) -> None:
+        if self.store.dirty_count:
+            answer = messagebox.askyesnocancel(
+                "Unsaved changes",
+                "There are %d unsaved change(s).\n\n"
+                "Yes = save and close, No = close without saving, Cancel = stay."
+                % self.store.dirty_count,
+            )
+            if answer is None:
+                return
+            if answer and not self.save_current_source():
+                return
+        self.root.destroy()
+
+
+def main() -> None:
+    """Start the ImageMarker application."""
+    root = tk.Tk()
+    ImageMarkerApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

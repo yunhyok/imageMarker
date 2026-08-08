@@ -1,0 +1,7 @@
+# Runtime dependencies for ImageMarker
+pillow
+openpyxl
+
+# Development / packaging dependencies (not required to run the app):
+#   pyinstaller   -- builds the standalone Windows .exe (see build.bat)
+#   pytest        -- runs the test suite (see tests/)

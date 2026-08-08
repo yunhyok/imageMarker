@@ -1,0 +1,33 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak
+
+# Excel workbooks (user data / test fixtures) and backups
+*.xlsx
+*.backup.xlsx
+
+# Test artifacts (generated images, etc.)
+*.png
+!assets/*.png
+
+# Windows junk
+Thumbs.db
+desktop.ini
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Committed build assets — do NOT ignore
+!assets/icon.ico

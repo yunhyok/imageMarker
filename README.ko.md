@@ -50,6 +50,22 @@ dist\ImageMarker.exe
 
 빌드에는 `assets/icon.ico`에 있는 아이콘이 사용됩니다 (이미 저장소에 커밋되어 있습니다. 변경이 필요한 경우 `python assets/make_icon.py`를 사용하여 다시 생성하세요).
 
+### 설치 프로그램
+
+`dist\ImageMarker.exe`를 기반으로 [Inno Setup 6](https://jrsoftware.org/isinfo.php)을 사용하여 Windows 설치 프로그램을 빌드할 수 있습니다:
+
+```bat
+build_installer.bat
+```
+
+`build_installer.bat`은 `dist\ImageMarker.exe`가 존재하는지 확인하고(존재하지 않는 경우 `build.bat`으로 먼저 빌드하십시오), Inno Setup 6 컴파일러(`ISCC.exe`)를 찾아 `installer\ImageMarker.iss`를 컴파일하여 다음을 생성합니다:
+
+```
+dist\ImageMarker-Setup-1.0.0.exe
+```
+
+이 설치 프로그램은 기본적으로 사용자별로 설치되며(관리자 권한 프롬프트가 표시되지 않지만, 대신 관리자/모든 사용자 설치를 선택할 수도 있습니다), 시작 메뉴 바로가기를 추가하고 선택적으로 바탕 화면 아이콘을 제공하며, 다른 설치된 프로그램과 마찬가지로 Windows 설정 → 앱에서 나중에 제거할 수 있습니다.
+
 ## 키보드 단축키
 
 ### 탐색

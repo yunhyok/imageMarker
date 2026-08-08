@@ -85,6 +85,28 @@ The build uses the icon at `assets/icon.ico` (already committed to the
 repo — regenerate it with `python assets/make_icon.py` if you ever need
 to change it).
 
+### Installer
+
+A Windows installer can be built on top of `dist\ImageMarker.exe` with
+[Inno Setup 6](https://jrsoftware.org/isinfo.php):
+
+```bat
+build_installer.bat
+```
+
+`build_installer.bat` checks that `dist\ImageMarker.exe` exists (build it
+first with `build.bat` if not), locates the Inno Setup 6 compiler
+(`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
+
+```
+dist\ImageMarker-Setup-1.0.0.exe
+```
+
+The installer installs per-user by default (no administrator prompt,
+though an admin/all-users install can be chosen instead), adds a Start
+Menu shortcut, offers an optional desktop icon, and can be removed later
+from Windows Settings → Apps like any other installed program.
+
 ## Keyboard shortcuts
 
 ### Navigation

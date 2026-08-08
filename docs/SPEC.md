@@ -11,7 +11,11 @@ and status filtering.
 ### Image folders
 - Images live in folders like `V:\samples\20260619 low yield\<sample name>_slices\`
 - Filename pattern: `<name>_rgb_<row>_<node>.png` (row/node zero-padded, e.g. `_rgb_01_07.png`)
-- One `_slices` folder = one sample (~989 images, rows 1..26, nodes 1..38)
+- One `_slices` folder = one sample (~989 files: 988 images, rows 1..26, nodes 1..38,
+  plus a `_slice_manifest.json`)
+- A measurement folder holds SEVERAL `_slices` subfolders (e.g. four to five
+  samples side by side), so "Load Folder" must scan RECURSIVELY and can end up
+  holding several distinct image name prefixes at once.
 
 ### Excel format (new, must support)
 - Example: `V:\samples\20260619 low yield\20260619_low_yield_150px_data.xlsx`
@@ -29,13 +33,20 @@ and status filtering.
 - CRITICAL: image-folder name prefix does NOT match Excel `Name`
   (`260619 p3meet ac 7kg 100mm, SAM 1` vs `20260619-P3MEEMT(1-3)_7kgf_100_sam1`).
   Matching Excel rows to images therefore works like this:
-  1. On Excel load, list distinct `Name` values with row counts.
-  2. Auto-suggest the best match by extracting a sample number
+  1. On Excel load, list distinct `Name` values with row counts, and collect the
+     distinct image name prefixes of the loaded records (a recursive load holds
+     one prefix per sample).
+  2. Auto-suggest the best match PER IMAGE PREFIX by extracting a sample number
      (regex `sam\s*_?(\d+)` case-insensitive) from both the image name prefix and
      each Excel Name; if exactly one Excel Name shares the number, preselect it.
-  3. Show a small selection dialog (listbox + OK/Cancel) so the user confirms
-     which Excel `Name` corresponds to the loaded image folder.
-  4. Then match rows by `(row, node)` ints within the chosen Name.
+  3. Show a mapping dialog with one row per image prefix
+     (prefix, image count, Excel-`Name` combobox preselected with the suggestion,
+     `(skip)` for "no counterpart in this workbook") + OK/Cancel. With a single
+     prefix the dialog simply has one row.
+  4. Then match rows by `(row, node)` ints within each prefix's mapped Name.
+     Records mapped to different Names coexist in one session; write-back is
+     per record (worksheet row + Status column) so they can all be dirty and
+     saved together.
 
 ### Legacy CSV format (keep working)
 - Columns `name,row,node,label` (+ arbitrary extra columns preserved on save),
@@ -51,7 +62,9 @@ imageMarker/
   imagemarker/
     __init__.py            # __version__ = "1.0.0"
     app.py                 # tkinter UI (ImageMarkerApp), main()
-    data_model.py          # ImageRecord dataclass, ImageStore (list mgmt, filtering, sorting)
+    data_model.py          # ImageRecord dataclass, recursive folder scan
+                           # (scan_image_folder -> FolderScanResult), ImageStore
+                           # (list mgmt, filtering, sorting)
     excel_io.py            # ExcelSource class (load/update-in-place)
     csv_io.py              # legacy CSV load/save helpers
   tests/
@@ -61,7 +74,12 @@ imageMarker/
 ```
 
 ### Core behaviors (carried over from prototype)
-- Load image folder → parse `<name>_rgb_<row>_<node>.png`, sorted by (name,row,node)
+- Load image folder → walk it RECURSIVELY (`os.walk`, sorted dirnames/filenames
+  for a deterministic order), parse `<name>_rgb_<row>_<node>.png` in every
+  subfolder, sorted by (name,row,node). Each record keeps the actual path of the
+  file it was found at. A repeated `(name,row,node)` keeps the first file
+  encountered; the rest are counted and the count is reported in the post-load
+  summary (info bar).
 - Image canvas on top (aspect-ratio preserved, resizes with window), table below
 - Table columns: Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, Status
   (metric columns empty until an Excel/CSV is loaded; keep widths sensible)
@@ -94,9 +112,10 @@ imageMarker/
   materialized per row, PLUS remember for each record its 1-based worksheet row
   index and the Status column index — this is what makes targeted write-back
   possible.
-- After the Name-selection dialog (see above), join to loaded images by
-  (row, node). Report matched/unmatched counts. Records with no Excel row keep
-  blank metrics and get flagged `no_data`.
+- After the name-mapping dialog (see above), join each image prefix's records by
+  (row, node) within its mapped Excel Name. Report matched/unmatched counts per
+  prefix plus a total. Records with no Excel row (unmatched, or a skipped prefix)
+  keep blank metrics and get flagged `no_data`.
 - Metric display formatting: scientific notation `%.3e` when 0 < |v| < 1e-3 or
   |v| >= 1e5, else up to 4 significant digits; blank for None.
 - "Save to Excel" button/menu (enabled only when an Excel is loaded and dirty

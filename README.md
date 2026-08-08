@@ -9,23 +9,33 @@ spreadsheets (with legacy CSV support retained).
 ## What it is
 
 ImageMarker loads a folder of per-device image slices
-(`<name>_rgb_<row>_<node>.png`), shows each image alongside its metrics in
-a sortable table, and lets a reviewer quickly step through the set and
-correct the `Status` label with single keystrokes. When a source Excel
-workbook is loaded, edited statuses are written back **in place** —
-only the `Status` cells of rows you actually changed are touched; every
-other cell, formula, and format in the workbook is left untouched.
+(`<name>_rgb_<row>_<node>.png`) — **including every subfolder**, so a whole
+measurement day of `<sample>_slices` folders opens in one go — shows each
+image alongside its metrics in a sortable table, and lets a reviewer
+quickly step through the set and correct the `Status` label with single
+keystrokes. When a source Excel workbook is loaded, edited statuses are
+written back **in place** — only the `Status` cells of rows you actually
+changed are touched; every other cell, formula, and format in the
+workbook is left untouched.
 
 ## Features
 
 - **Image + data review** — image canvas on top (aspect-ratio preserved,
   resizes with the window), full data table below (Name, Row, Node, ON,
   OFF, ON/OFF, gm, Vth, Carrier Mobility, Status).
-- **Excel in-place Status update** — open the lab's `.xlsx` workbook,
-  confirm which `Name` in the sheet corresponds to the loaded image
-  folder, review/correct statuses, then "Save to Excel" writes back only
-  the changed `Status` cells. A one-time `<file>.backup.xlsx` safety copy
-  is made before the very first write.
+- **Recursive folder loading** — "Load Folder" walks the selected folder
+  *and every subfolder below it*, so pointing it at a day's measurement
+  folder loads all of its `<sample>_slices` subfolders at once. If the
+  same `(name, row, node)` image turns up in more than one subfolder the
+  first one found wins (the walk is alphabetical, so this is
+  deterministic) and the info bar reports how many duplicates were
+  skipped.
+- **Excel in-place Status update** — open the lab's `.xlsx` workbook and
+  match each loaded sample to its `Name` in the sheet (several samples can
+  be matched to their own `Name` in a single session), review/correct
+  statuses, then "Save to Excel" writes back only the changed `Status`
+  cells — across all matched samples at once. A one-time
+  `<file>.backup.xlsx` safety copy is made before the very first write.
 - **Status filtering** — a "Status filter" dropdown lists every distinct
   status value currently present (including a `(blank)` entry) with
   checkboxes, plus All/None quick actions; unchecked values are hidden
@@ -40,7 +50,8 @@ other cell, formula, and format in the workbook is left untouched.
   ascending/descending); the current selection follows the item you were
   viewing across the re-sort.
 - **Info bar** — shows current position, per-status counts (for both the
-  full set and the active filter), folder name, source file name, and the
+  full set and the active filter), folder name (plus the number of image
+  subfolders walked and duplicates skipped), source file name, and the
   unsaved-change count.
 - **Unsaved-change protection** — every edit is tracked with a dirty flag;
   the window title and a marker column show unsaved rows, and closing with
@@ -99,7 +110,7 @@ first with `build.bat` if not), locates the Inno Setup 6 compiler
 (`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
 
 ```
-dist\ImageMarker-Setup-1.0.0.exe
+dist\ImageMarker-Setup-1.1.0.exe
 ```
 
 The installer installs per-user by default (no administrator prompt,
@@ -139,18 +150,26 @@ are selected.
 
 ## Excel workflow
 
-1. **Open Excel…** — pick the `.xlsx` workbook (the first sheet is used
+1. **Load Folder** — pick the folder holding the images. Subfolders are
+   included, so selecting a whole measurement folder loads every
+   `<sample>_slices` subfolder underneath it in one pass.
+2. **Open Excel…** — pick the `.xlsx` workbook (the first sheet is used
    automatically).
-2. **Choose the sample Name** — because the image folder name and the
+3. **Match samples to Excel names** — because image file names and the
    Excel `Name` values don't share a common prefix, ImageMarker extracts
-   the sample number from both and pre-selects the best match; a small
-   dialog lets you confirm (or pick a different) `Name` before rows are
-   joined to the loaded images by `(Row, Node)`.
-3. **Review / edit** — matched rows populate the metric columns (ON, OFF,
+   the sample number from both and pre-selects the best match. A dialog
+   then shows one row per loaded sample (image name prefix, image count,
+   and an Excel `Name` dropdown) so you can confirm or change each pairing
+   — several samples can be matched to their own `Name` in one session,
+   and any sample with no counterpart in the workbook can be set to
+   `(skip)`. Each sample's rows are then joined to its images by
+   `(Row, Node)` within its own `Name`, and a summary reports the
+   matched / unmatched counts per sample.
+4. **Review / edit** — matched rows populate the metric columns (ON, OFF,
    ON/OFF, gm, Vth, Carrier Mobility) and existing `Status`; rows with no
    matching Excel data are flagged and left blank. Correct statuses with
    the keyboard shortcuts above.
-4. **Save to Excel** — enabled once there are unsaved changes. On first
+5. **Save to Excel** — enabled once there are unsaved changes. On first
    save, a `<file>.backup.xlsx` copy is made next to the source workbook
    (one-time safety backup). The original file is then reopened and only
    the `Status` cells of the rows you changed are updated and saved —

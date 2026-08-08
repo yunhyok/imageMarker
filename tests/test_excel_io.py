@@ -29,6 +29,7 @@ from imagemarker.excel_io import (  # noqa: E402
     ExcelSource,
     extract_sample_number,
     suggest_excel_name,
+    suggest_name_mapping,
 )
 
 SHEET_NAME = "150px_20260619"
@@ -229,15 +230,109 @@ def test_suggest_excel_name(workbook_path: Path) -> None:
     assert suggest_excel_name("sam 1", ["a_sam1", "b_sam1"]) is None
 
 
+def test_suggest_mapping_pairs_every_prefix_with_its_own_name(
+    workbook_path: Path,
+) -> None:
+    """A recursive load brings several samples in at once - each gets a suggestion."""
+    source = ExcelSource.load(str(workbook_path))
+    prefixes = [
+        "260619 p3meet ac 7kg 100mm, SAM 1",
+        "260619 p3meemt ac 7kgf 100mm, SAM 2",
+        "260701 p3meemt 8mg-ac 8kgf 350- sam 11_2",  # no Excel counterpart
+        "unrelated folder",  # no sample number at all
+    ]
+
+    mapping = source.suggest_mapping(prefixes)
+
+    assert mapping == {
+        "260619 p3meet ac 7kg 100mm, SAM 1": NAME_1,
+        "260619 p3meemt ac 7kgf 100mm, SAM 2": NAME_2,
+        "260701 p3meemt 8mg-ac 8kgf 350- sam 11_2": None,
+        "unrelated folder": None,
+    }
+    # the prefix order is preserved so the dialog rows stay stable
+    assert list(mapping) == prefixes
+
+
+def test_suggest_name_mapping_handles_duplicates_and_ambiguity() -> None:
+    # repeated prefixes collapse to a single entry
+    assert suggest_name_mapping(["sam 1", "sam 1"], ["x_sam1"]) == {"sam 1": "x_sam1"}
+    # ambiguous numbers yield no suggestion, the rest are unaffected
+    assert suggest_name_mapping(
+        ["sam 1", "sam 2"], ["a_sam1", "b_sam1", "only_sam2"]
+    ) == {"sam 1": None, "sam 2": "only_sam2"}
+    assert suggest_name_mapping([], ["a_sam1"]) == {}
+
+
+def test_multi_prefix_join_matches_each_sample_to_its_own_name(
+    workbook_path: Path,
+) -> None:
+    source = ExcelSource.load(str(workbook_path))
+    prefix_1 = "260619 p3meet ac 7kg 100mm, SAM 1"
+    prefix_2 = "260619 p3meemt ac 7kgf 100mm, SAM 2"
+    prefix_3 = "260701 p3meemt 8mg-ac 8kgf 350- sam 11_2"
+
+    records = (
+        make_records(prefix_1, [(1, 1), (2, 2)])
+        + make_records(prefix_2, [(1, 1), (1, 2), (9, 9)])
+        + make_records(prefix_3, [(1, 1)])  # skipped by the user
+    )
+    store = ImageStore(records)
+
+    mapping = source.suggest_mapping([prefix_1, prefix_2, prefix_3])
+    indexes = {
+        prefix: source.index_for_name(name)
+        for prefix, name in mapping.items()
+        if name is not None
+    }
+    stats = store.apply_excel_rows(indexes)
+
+    assert stats == {prefix_1: (2, 0), prefix_2: (2, 1), prefix_3: (0, 1)}
+
+    # sam1 rows came from NAME_1 ...
+    assert store.records[0].status == "Pass"
+    assert store.records[0].excel_row == 2
+    # ... and sam2 rows from NAME_2, in the same store
+    assert store.records[2].status == "No Active"
+    assert store.records[2].excel_row == 6
+    assert store.records[3].status == "Weird Status"
+    # unmatched / skipped records keep no data at all
+    assert store.records[4].no_data is True
+    assert store.records[5].no_data is True and store.records[5].excel_row is None
+
+
+def test_records_of_different_names_can_be_dirty_together(workbook_path: Path) -> None:
+    """Write-back is per record, so a multi-sample session saves in one go."""
+    before = read_grid(workbook_path)
+    source = ExcelSource.load(str(workbook_path))
+    store = ImageStore(make_records("a", [(1, 1)]) + make_records("b", [(1, 1)]))
+    store.apply_excel_rows(
+        {"a": source.index_for_name(NAME_1), "b": source.index_for_name(NAME_2)}
+    )
+
+    store.apply_status([store.records[0]], "Short")  # NAME_1, sheet row 2
+    store.apply_status([store.records[1]], "Open")  # NAME_2, sheet row 6
+    assert store.dirty_count == 2
+
+    written, backup_created, skipped = source.write_records(store.dirty_records())
+    assert (written, backup_created, skipped) == (2, True, 0)
+
+    after = read_grid(workbook_path)
+    changed = {key for key in before if before[key] != after[key]}
+    assert changed == {(2, STATUS_COL), (6, STATUS_COL)}
+    assert after[(2, STATUS_COL)] == "Short"
+    assert after[(6, STATUS_COL)] == "Open"
+
+
 def test_row_node_matching_joins_images_to_excel(workbook_path: Path) -> None:
     source = ExcelSource.load(str(workbook_path))
     index = source.index_for_name(NAME_1)
     assert set(index) == {(1, 1), (1, 2), (2, 1), (2, 2)}
 
     store = ImageStore(make_records("folder_prefix", [(1, 1), (1, 2), (2, 1), (9, 9)]))
-    matched, unmatched = store.apply_excel_rows(index)
+    stats = store.apply_excel_rows({"folder_prefix": index})
 
-    assert (matched, unmatched) == (3, 1)
+    assert stats == {"folder_prefix": (3, 1)}
     first = store.records[0]
     assert first.status == "Pass"
     assert first.excel_row == 2
@@ -265,7 +360,7 @@ def test_write_back_touches_only_dirty_status_cells(workbook_path: Path) -> None
 
     source = ExcelSource.load(str(workbook_path))
     store = ImageStore(make_records("prefix", [(1, 1), (1, 2), (2, 1), (2, 2)]))
-    store.apply_excel_rows(source.index_for_name(NAME_1))
+    store.apply_excel_rows({"prefix": source.index_for_name(NAME_1)})
 
     # edit two records only
     target_a = store.records[0]  # sheet row 2, 'Pass'   -> 'No Active'
@@ -337,7 +432,7 @@ def test_write_statuses_without_updates_is_a_noop(workbook_path: Path) -> None:
 def test_records_without_an_excel_row_are_skipped(workbook_path: Path) -> None:
     source = ExcelSource.load(str(workbook_path))
     store = ImageStore(make_records("prefix", [(1, 1), (9, 9)]))
-    store.apply_excel_rows(source.index_for_name(NAME_1))
+    store.apply_excel_rows({"prefix": source.index_for_name(NAME_1)})
     store.apply_status(store.records, "Short")
 
     written, _, skipped = source.write_records(store.dirty_records())

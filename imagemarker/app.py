@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PIL import Image, ImageTk
 
@@ -26,6 +26,7 @@ from .data_model import (
     STATUS_OVERLAY_COLORS,
     STATUS_PASS,
     STATUS_SHORT,
+    FolderScanResult,
     ImageRecord,
     ImageStore,
     format_metric,
@@ -70,60 +71,85 @@ NAV_HINT = (
 )
 
 
-class NameSelectDialog(tk.Toplevel):
-    """Modal listbox dialog used to pick the Excel ``Name`` for a folder."""
+#: Combobox entry meaning "this sample has no Excel counterpart".
+SKIP_CHOICE = "(skip)"
+
+
+class NameMappingDialog(tk.Toplevel):
+    """Modal dialog mapping every loaded image name prefix to an Excel ``Name``.
+
+    A recursive folder load can bring in several samples at once, so the dialog
+    shows one row per image name prefix (a single-sample load simply has one
+    row).  Each row is preselected with the sample-number based auto-suggestion
+    and can be set to ``(skip)`` when that sample has no Excel counterpart.
+    """
 
     def __init__(
         self,
         parent: tk.Misc,
+        prefixes: Sequence[Tuple[str, int]],
         names: Sequence[Tuple[str, int]],
-        suggested: Optional[str] = None,
-        image_prefix: Optional[str] = None,
+        suggestions: Optional[Mapping[str, Optional[str]]] = None,
     ) -> None:
         super().__init__(parent)
-        self.title("Select the Excel data set")
+        self.title("Match samples to Excel names")
         self.resizable(True, True)
-        self.result: Optional[str] = None
-        self._names = list(names)
+        self.result: Optional[Dict[str, Optional[str]]] = None
+        self._prefixes = list(prefixes)
+        self._names = [name for name, _ in names]
+        self._choices = [SKIP_CHOICE] + [
+            "%s   (%d rows)" % (name, count) for name, count in names
+        ]
+        self._combos: List[ttk.Combobox] = []
+        suggestions = suggestions or {}
 
-        header = "Image folder: %s" % (image_prefix or "(unknown)")
-        tk.Label(self, text=header, anchor="w", font=("Arial", 9)).pack(
-            fill=tk.X, padx=10, pady=(10, 0)
-        )
         tk.Label(
             self,
-            text="Select the Excel 'Name' that corresponds to these images:",
+            text=(
+                "Match each image sample to the Excel 'Name' that holds its "
+                "data.\nRows are then joined by (Row, Node) within that Name."
+            ),
             anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=(6, 4))
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=10, pady=(10, 6))
 
         body = tk.Frame(self)
         body.pack(fill=tk.BOTH, expand=True, padx=10)
-        scrollbar = ttk.Scrollbar(body, orient="vertical")
-        self.listbox = tk.Listbox(
-            body, height=min(12, max(4, len(self._names))), exportselection=False
-        )
-        self.listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.listbox.yview)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        for column, (heading, anchor) in enumerate(
+            (("Image name prefix", "w"), ("Images", "e"), ("Excel Name", "w"))
+        ):
+            tk.Label(
+                body, text=heading, anchor=anchor, font=("Arial", 9, "bold")
+            ).grid(row=0, column=column, sticky="ew", padx=(0, 8), pady=(0, 4))
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_columnconfigure(2, weight=1)
 
-        preselect = 0
-        for index, (name, count) in enumerate(self._names):
-            self.listbox.insert(tk.END, "%s   (%d rows)" % (name, count))
-            if suggested is not None and name == suggested:
-                preselect = index
-        if self._names:
-            self.listbox.selection_set(preselect)
-            self.listbox.see(preselect)
+        suggested_count = 0
+        for index, (prefix, count) in enumerate(self._prefixes, start=1):
+            tk.Label(body, text=prefix, anchor="w").grid(
+                row=index, column=0, sticky="ew", padx=(0, 8), pady=2
+            )
+            tk.Label(body, text=str(count), anchor="e").grid(
+                row=index, column=1, sticky="ew", padx=(0, 8), pady=2
+            )
+            combo = ttk.Combobox(body, values=self._choices, state="readonly", width=44)
+            suggested = suggestions.get(prefix)
+            if suggested is not None and suggested in self._names:
+                combo.current(self._names.index(suggested) + 1)
+                suggested_count += 1
+            else:
+                combo.current(0)
+            combo.grid(row=index, column=2, sticky="ew", pady=2)
+            self._combos.append(combo)
 
-        note = (
-            "Auto-suggested by sample number."
-            if suggested
-            else "No automatic suggestion - please choose manually."
-        )
-        tk.Label(self, text=note, anchor="w", fg="gray30", font=("Arial", 8)).pack(
-            fill=tk.X, padx=10, pady=(4, 0)
-        )
+        tk.Label(
+            self,
+            text="%d of %d sample(s) auto-suggested by sample number - review "
+            "and adjust as needed." % (suggested_count, len(self._prefixes)),
+            anchor="w",
+            fg="gray30",
+            font=("Arial", 8),
+        ).pack(fill=tk.X, padx=10, pady=(6, 0))
 
         buttons = tk.Frame(self)
         buttons.pack(fill=tk.X, padx=10, pady=10)
@@ -134,7 +160,6 @@ class NameSelectDialog(tk.Toplevel):
             side=tk.RIGHT, padx=(0, 6)
         )
 
-        self.listbox.bind("<Double-Button-1>", lambda event: self._on_ok())
         self.bind("<Return>", lambda event: self._on_ok())
         self.bind("<Escape>", lambda event: self._on_cancel())
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
@@ -142,12 +167,15 @@ class NameSelectDialog(tk.Toplevel):
         self.transient(parent)
         self.update_idletasks()
         self.grab_set()
-        self.listbox.focus_set()
+        if self._combos:
+            self._combos[0].focus_set()
 
     def _on_ok(self) -> None:
-        selection = self.listbox.curselection()
-        if selection:
-            self.result = self._names[selection[0]][0]
+        mapping: Dict[str, Optional[str]] = {}
+        for (prefix, _), combo in zip(self._prefixes, self._combos):
+            index = combo.current()
+            mapping[prefix] = self._names[index - 1] if index > 0 else None
+        self.result = mapping
         self.destroy()
 
     def _on_cancel(self) -> None:
@@ -165,8 +193,11 @@ class ImageMarkerApp:
 
         self.store = ImageStore()
         self.image_folder: Optional[str] = None
+        #: Short description of the last folder scan (subfolders / duplicates).
+        self.scan_summary: str = ""
         self.excel: Optional[ExcelSource] = None
-        self.excel_name: Optional[str] = None
+        #: image name prefix -> Excel ``Name`` (``None`` = skipped by the user).
+        self.excel_names: Dict[str, Optional[str]] = {}
         self.csv_headers: List[str] = list(BASE_HEADERS)
         self.source_path: Optional[str] = None
 
@@ -343,18 +374,22 @@ class ImageMarkerApp:
         if not folder:
             return
         try:
-            count = self.store.load_folder(folder)
+            scan = self.store.load_folder(folder)
         except OSError as exc:
             messagebox.showerror("Error", "Failed to read the folder:\n%s" % exc)
             return
 
-        if not count:
-            messagebox.showwarning("No Images", "No valid RGB images found in folder")
+        if not scan.count:
+            messagebox.showwarning(
+                "No Images",
+                "No valid RGB images found in the folder or any of its subfolders",
+            )
             return
 
         self.image_folder = folder
+        self.scan_summary = self._format_scan_summary(scan)
         self.excel = None
-        self.excel_name = None
+        self.excel_names = {}
         self.source_path = None
         self.csv_headers = list(BASE_HEADERS)
         self.rebuild_filter_menu()
@@ -362,15 +397,15 @@ class ImageMarkerApp:
         self.load_current_image()
         self.update_info()
 
-    @property
-    def image_prefix(self) -> Optional[str]:
-        """Common ``<name>`` part of the loaded images (used for suggestions)."""
-        records = self.store.records
-        if records:
-            return records[0].name
-        if self.image_folder:
-            return os.path.basename(self.image_folder)
-        return None
+    @staticmethod
+    def _format_scan_summary(scan: FolderScanResult) -> str:
+        """Post-load summary of the recursive scan, shown in the info bar."""
+        parts: List[str] = []
+        if scan.folder_count > 1:
+            parts.append("%d image folders" % scan.folder_count)
+        if scan.duplicate_count:
+            parts.append("%d duplicate(s) skipped" % scan.duplicate_count)
+        return ", ".join(parts)
 
     def open_excel(self) -> None:
         if not self.store.records:
@@ -400,20 +435,36 @@ class ImageMarkerApp:
             messagebox.showerror("Excel", "The selected sheet contains no data rows.")
             return
 
-        suggested = source.suggest_name(self.image_prefix)
-        dialog = NameSelectDialog(
-            self.root, names, suggested=suggested, image_prefix=self.image_prefix
-        )
+        prefixes = self.store.name_counts()
+        suggestions = source.suggest_mapping([prefix for prefix, _ in prefixes])
+        dialog = NameMappingDialog(self.root, prefixes, names, suggestions)
         self.root.wait_window(dialog)
-        chosen = dialog.result
-        if chosen is None:
+        mapping = dialog.result
+        if mapping is None:
             return
 
-        index = source.index_for_name(chosen)
-        matched, unmatched = self.store.apply_excel_rows(index)
+        chosen = {
+            prefix: name for prefix, name in mapping.items() if name is not None
+        }
+        if not chosen:
+            messagebox.showwarning(
+                "Excel",
+                "Every sample was set to %s, so there is nothing to join." % SKIP_CHOICE,
+            )
+            return
+
+        # One (row, node) index per Excel Name, shared by prefixes that were
+        # mapped to the same Name.
+        indexes_by_name = {
+            name: source.index_for_name(name) for name in set(chosen.values())
+        }
+        indexes_by_prefix = {
+            prefix: indexes_by_name[name] for prefix, name in chosen.items()
+        }
+        stats = self.store.apply_excel_rows(indexes_by_prefix)
 
         self.excel = source
-        self.excel_name = chosen
+        self.excel_names = dict(mapping)
         self.source_path = path
 
         self.rebuild_filter_menu()
@@ -422,13 +473,21 @@ class ImageMarkerApp:
         self.load_current_image()
         self.update_info()
 
-        unused = len(index) - matched
-        messagebox.showinfo(
-            "Excel loaded",
-            "Sheet: %s\nName: %s\n\nMatched images: %d\nImages without data: %d\n"
-            "Excel rows without an image: %d"
-            % (source.sheet_name, chosen, matched, unmatched, max(0, unused)),
+        total_matched = sum(matched for matched, _ in stats.values())
+        unused = sum(len(index) for index in indexes_by_name.values()) - total_matched
+        lines = ["Sheet: %s" % source.sheet_name, ""]
+        for prefix, count in prefixes:
+            matched, unmatched = stats.get(prefix, (0, count))
+            lines.append(
+                "%s -> %s\n    %d matched, %d without data"
+                % (prefix, mapping.get(prefix) or SKIP_CHOICE, matched, unmatched)
+            )
+        lines.append("")
+        lines.append(
+            "Total: %d matched, %d without data\nExcel rows without an image: %d"
+            % (total_matched, len(self.store) - total_matched, max(0, unused))
         )
+        messagebox.showinfo("Excel loaded", "\n".join(lines))
 
     def save_excel(self) -> None:
         if self.excel is None:
@@ -491,7 +550,7 @@ class ImageMarkerApp:
         self.csv_headers = data.headers
         matched = self.store.apply_csv_labels(data.labels, data.extras)
         self.excel = None
-        self.excel_name = None
+        self.excel_names = {}
         self.source_path = path
 
         self.rebuild_filter_menu()
@@ -875,6 +934,16 @@ class ImageMarkerApp:
     # Info bar / title
     # ------------------------------------------------------------------ #
 
+    @property
+    def excel_name_summary(self) -> Optional[str]:
+        """Excel ``Name`` (single sample) or ``'N samples'`` for the info bar."""
+        used = [name for name in self.excel_names.values() if name]
+        if not used:
+            return None
+        if len(used) == 1:
+            return used[0]
+        return "%d samples" % len(used)
+
     def update_info(self) -> None:
         total = len(self.store)
         dirty_count = self.store.dirty_count
@@ -915,11 +984,15 @@ class ImageMarkerApp:
             )
 
         if self.image_folder:
-            parts.append("Folder: %s" % os.path.basename(self.image_folder))
+            folder_text = os.path.basename(self.image_folder)
+            if self.scan_summary:
+                folder_text += " (%s)" % self.scan_summary
+            parts.append("Folder: %s" % folder_text)
         if self.source_path:
             source = os.path.basename(self.source_path)
-            if self.excel_name:
-                source += " [%s]" % self.excel_name
+            summary = self.excel_name_summary
+            if summary:
+                source += " [%s]" % summary
             parts.append("Source: %s" % source)
         parts.append("Unsaved: %d" % dirty_count)
 

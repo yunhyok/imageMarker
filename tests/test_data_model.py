@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -23,6 +24,7 @@ from imagemarker.data_model import (  # noqa: E402
     normalize_status,
     parse_image_filename,
     parse_image_folder,
+    scan_image_folder,
     status_display,
 )
 
@@ -76,6 +78,111 @@ def test_parse_image_folder_sorted_and_filtered(tmp_path: Path) -> None:
     ]
     assert all(Path(record.path).exists() for record in records)
     assert all(record.no_data and not record.dirty for record in records)
+
+
+# --------------------------------------------------------------------------- #
+# Recursive folder scanning
+# --------------------------------------------------------------------------- #
+
+def test_parse_image_folder_includes_subfolders(tmp_path: Path) -> None:
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "s1_rgb_01_01.png").write_bytes(b"")
+    (tmp_path / "s0_rgb_01_01.png").write_bytes(b"")
+
+    records = parse_image_folder(str(tmp_path))
+
+    assert [(r.name, r.row, r.node) for r in records] == [("s0", 1, 1), ("s1", 1, 1)]
+
+
+def make_images(folder: Path, filenames: List[str]) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    for filename in filenames:
+        (folder / filename).write_bytes(b"")
+
+
+def test_scan_walks_subfolders(tmp_path: Path) -> None:
+    """A folder of ``<sample>_slices`` subfolders loads as one set."""
+    make_images(tmp_path / "s1_slices", ["s1_rgb_01_02.png", "s1_rgb_01_01.png"])
+    make_images(tmp_path / "s2_slices", ["s2_rgb_02_01.png", "s2_rgb_01_01.png"])
+    make_images(tmp_path / "s2_slices" / "deeper", ["s3_rgb_05_05.png"])
+    make_images(tmp_path, ["top_rgb_09_09.png", "notes.txt", "s1_slice_manifest.json"])
+
+    scan = scan_image_folder(str(tmp_path))
+
+    # every subfolder level is included, sorted by (name, row, node)
+    assert [(r.name, r.row, r.node) for r in scan.records] == [
+        ("s1", 1, 1),
+        ("s1", 1, 2),
+        ("s2", 1, 1),
+        ("s2", 2, 1),
+        ("s3", 5, 5),
+        ("top", 9, 9),
+    ]
+    assert scan.count == 6
+    assert scan.duplicate_count == 0
+    # the selected folder itself plus the three subfolders holding images
+    assert scan.folder_count == 4
+    assert sorted(scan.folders) == sorted(
+        [".", "s1_slices", "s2_slices", os.path.join("s2_slices", "deeper")]
+    )
+
+    # each record keeps the real path of the file it was found at
+    for record in scan.records:
+        assert Path(record.path).exists()
+    by_name = {record.name: record for record in scan.records}
+    assert Path(by_name["s1"].path).parent.name == "s1_slices"
+    assert Path(by_name["s3"].path).parent.name == "deeper"
+
+
+def test_scan_keeps_the_first_duplicate_and_counts_the_rest(tmp_path: Path) -> None:
+    make_images(tmp_path / "b_copy", ["s1_rgb_01_01.png", "s1_rgb_01_02.png"])
+    make_images(tmp_path / "a_original", ["s1_rgb_01_01.png"])
+    make_images(tmp_path / "c_copy", ["s1_rgb_01_01.png"])
+
+    scan = scan_image_folder(str(tmp_path))
+
+    assert [(r.name, r.row, r.node) for r in scan.records] == [("s1", 1, 1), ("s1", 1, 2)]
+    # walk order is sorted, so 'a_original' wins over 'b_copy'/'c_copy'
+    assert Path(scan.records[0].path).parent.name == "a_original"
+    assert scan.duplicate_count == 2
+    assert sorted(Path(path).parent.name for path in scan.duplicate_paths) == [
+        "b_copy",
+        "c_copy",
+    ]
+    assert scan.folder_count == 3
+
+
+def test_scan_is_deterministic(tmp_path: Path) -> None:
+    for folder in ("z_last", "m_middle", "a_first"):
+        make_images(tmp_path / folder, ["s_rgb_01_01.png"])
+
+    first = scan_image_folder(str(tmp_path))
+    second = scan_image_folder(str(tmp_path))
+
+    assert [r.path for r in first.records] == [r.path for r in second.records]
+    assert first.duplicate_paths == second.duplicate_paths
+    assert Path(first.records[0].path).parent.name == "a_first"
+
+
+def test_scan_of_an_empty_tree(tmp_path: Path) -> None:
+    make_images(tmp_path / "empty", ["readme.txt"])
+    scan = scan_image_folder(str(tmp_path))
+    assert (scan.count, scan.duplicate_count, scan.folder_count) == (0, 0, 0)
+    assert len(scan) == 0
+
+
+def test_store_load_folder_returns_the_scan_result(tmp_path: Path) -> None:
+    make_images(tmp_path / "sub_a", ["s1_rgb_01_01.png", "s1_rgb_01_02.png"])
+    make_images(tmp_path / "sub_b", ["s2_rgb_01_01.png", "s1_rgb_01_01.png"])
+
+    store = ImageStore()
+    scan = store.load_folder(str(tmp_path))
+
+    assert scan.count == 3
+    assert scan.duplicate_count == 1
+    assert len(store) == 3
+    assert store.current_record is store.records[0]
+    assert store.name_counts() == [("s1", 2), ("s2", 1)]
 
 
 @pytest.mark.parametrize(

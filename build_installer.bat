@@ -14,7 +14,11 @@ rem ---------------------------------------------------------------------
 set "SCRIPT_DIR=%~dp0"
 set "EXE_PATH=%SCRIPT_DIR%dist\ImageMarker.exe"
 set "ISS_PATH=%SCRIPT_DIR%installer\ImageMarker.iss"
-set "SETUP_EXE=%SCRIPT_DIR%dist\ImageMarker-Setup-1.0.0.exe"
+
+rem Read the version from the .iss so the reported path always matches
+set "APP_VERSION="
+for /f tokens^=2^ delims^=^" %%v in ('findstr /c:"#define MyAppVersion" "%ISS_PATH%"') do set "APP_VERSION=%%v"
+set "SETUP_EXE=%SCRIPT_DIR%dist\ImageMarker-Setup-%APP_VERSION%.exe"
 
 pushd "%SCRIPT_DIR%" || (
     echo [build_installer.bat] ERROR: could not change to "%SCRIPT_DIR%"

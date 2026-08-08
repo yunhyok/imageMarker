@@ -130,6 +130,22 @@ def suggest_excel_name(image_prefix: Optional[str], names: Sequence[str]) -> Opt
     return None
 
 
+def suggest_name_mapping(
+    image_prefixes: Sequence[str], names: Sequence[str]
+) -> Dict[str, Optional[str]]:
+    """Suggest one Excel ``Name`` per image name prefix.
+
+    A recursive folder load can hold several samples at once, so every distinct
+    image name prefix gets its own suggestion (``None`` when the sample number
+    is missing or ambiguous).  The returned dict keeps the order of
+    ``image_prefixes``.
+    """
+    return {
+        prefix: suggest_excel_name(prefix, names)
+        for prefix in dict.fromkeys(image_prefixes)
+    }
+
+
 def backup_path_for(path: str) -> str:
     """``.../data.xlsx`` -> ``.../data.backup.xlsx``."""
     stem, _ = os.path.splitext(path)
@@ -294,8 +310,18 @@ class ExcelSource:
                 seen.append(row.status)
         return seen
 
+    def name_list(self) -> List[str]:
+        """Distinct ``Name`` values, in first-seen order."""
+        return [name for name, _ in self.names()]
+
     def suggest_name(self, image_prefix: Optional[str]) -> Optional[str]:
-        return suggest_excel_name(image_prefix, [name for name, _ in self.names()])
+        return suggest_excel_name(image_prefix, self.name_list())
+
+    def suggest_mapping(
+        self, image_prefixes: Sequence[str]
+    ) -> Dict[str, Optional[str]]:
+        """Auto-suggest an Excel ``Name`` for every loaded image name prefix."""
+        return suggest_name_mapping(image_prefixes, self.name_list())
 
     # -- write back -------------------------------------------------------- #
 

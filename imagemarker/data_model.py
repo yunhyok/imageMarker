@@ -223,24 +223,76 @@ def parse_image_filename(filename: str) -> Optional[Tuple[str, int, int]]:
     return name, int(row), int(node)
 
 
-def parse_image_folder(folder: str) -> List[ImageRecord]:
-    """Build records for every RGB slice image in ``folder``, sorted."""
-    records: List[ImageRecord] = []
-    for filename in sorted(os.listdir(folder)):
-        parsed = parse_image_filename(filename)
-        if parsed is None:
-            continue
-        name, row, node = parsed
-        records.append(
-            ImageRecord(
-                name=name,
-                row=row,
-                node=node,
-                path=os.path.join(folder, filename),
+@dataclass
+class FolderScanResult:
+    """Outcome of a recursive image-folder scan."""
+
+    root: str
+    records: List[ImageRecord] = field(default_factory=list)
+    #: Paths that were skipped because their ``(name, row, node)`` was already
+    #: seen in an earlier (walk-order) folder.
+    duplicate_paths: List[str] = field(default_factory=list)
+    #: Folders that contained at least one image, relative to ``root``
+    #: (``'.'`` for the selected folder itself), in walk order.
+    folders: List[str] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    @property
+    def count(self) -> int:
+        return len(self.records)
+
+    @property
+    def duplicate_count(self) -> int:
+        return len(self.duplicate_paths)
+
+    @property
+    def folder_count(self) -> int:
+        return len(self.folders)
+
+
+def scan_image_folder(folder: str) -> FolderScanResult:
+    """Recursively collect every RGB slice image below ``folder``.
+
+    ``os.walk`` is driven with sorted directory and file names so the traversal
+    order is deterministic.  When the same ``(name, row, node)`` shows up in
+    more than one subfolder the FIRST one encountered wins and the rest are
+    recorded in :attr:`FolderScanResult.duplicate_paths`.
+
+    The returned records are sorted by ``(name, row, node)`` and each keeps the
+    actual path of the file it was found at.
+    """
+    result = FolderScanResult(root=folder)
+    seen: Set[Tuple[str, int, int]] = set()
+
+    for dirpath, dirnames, filenames in os.walk(folder):
+        dirnames.sort()
+        found_here = False
+        for filename in sorted(filenames):
+            parsed = parse_image_filename(filename)
+            if parsed is None:
+                continue
+            found_here = True
+            name, row, node = parsed
+            path = os.path.join(dirpath, filename)
+            if (name, row, node) in seen:
+                result.duplicate_paths.append(path)
+                continue
+            seen.add((name, row, node))
+            result.records.append(
+                ImageRecord(name=name, row=row, node=node, path=path)
             )
-        )
-    records.sort(key=lambda record: (record.name, record.row, record.node))
-    return records
+        if found_here:
+            result.folders.append(os.path.relpath(dirpath, folder))
+
+    result.records.sort(key=lambda record: (record.name, record.row, record.node))
+    return result
+
+
+def parse_image_folder(folder: str) -> List[ImageRecord]:
+    """Records for every RGB slice image in ``folder`` and its subfolders."""
+    return scan_image_folder(folder).records
 
 
 # --------------------------------------------------------------------------- #
@@ -288,10 +340,23 @@ class ImageStore:
         self._current = self._records[0] if self._records else None
         self._invalidate()
 
-    def load_folder(self, folder: str) -> int:
-        """Load every RGB image of ``folder``; returns the record count."""
-        self.set_records(parse_image_folder(folder))
-        return len(self._records)
+    def load_folder(self, folder: str) -> FolderScanResult:
+        """Load every RGB image of ``folder`` *and its subfolders*.
+
+        Returns the full :class:`FolderScanResult` so the caller can report the
+        number of image folders that were walked and how many duplicate
+        ``(name, row, node)`` files were skipped.
+        """
+        result = scan_image_folder(folder)
+        self.set_records(result.records)
+        return result
+
+    def name_counts(self) -> List[Tuple[str, int]]:
+        """Distinct image name prefixes with their image counts, sorted."""
+        counts: Dict[str, int] = {}
+        for record in self._records:
+            counts[record.name] = counts.get(record.name, 0) + 1
+        return sorted(counts.items())
 
     def _invalidate(self) -> None:
         self._visible_cache = None
@@ -505,20 +570,30 @@ class ImageStore:
     # -- data source join -------------------------------------------------- #
 
     def apply_excel_rows(
-        self, rows_by_key: Mapping[Tuple[int, int], Any]
-    ) -> Tuple[int, int]:
-        """Join Excel rows onto the records by ``(row, node)``.
+        self, indexes_by_prefix: Mapping[str, Mapping[Tuple[int, int], Any]]
+    ) -> Dict[str, Tuple[int, int]]:
+        """Join Excel rows onto the records, one index per image name prefix.
 
-        ``rows_by_key`` maps ``(row, node)`` to an object exposing ``status``,
+        A recursive folder load can contain several samples, each with its own
+        ``Name`` in the workbook, so the join is driven by a mapping of image
+        name prefix -> ``(row, node)`` index (as produced by
+        :meth:`imagemarker.excel_io.ExcelSource.index_for_name`).  Prefixes the
+        user chose to skip are simply absent from ``indexes_by_prefix``; their
+        records are cleared like any other unmatched record.
+
+        Each index maps ``(row, node)`` to an object exposing ``status``,
         ``metrics``, ``sheet_row`` and ``status_col`` (see
         :class:`imagemarker.excel_io.ExcelRow`) - duck typed on purpose so the
         model stays independent of the IO layer.
 
-        Returns ``(matched, unmatched)`` image counts.
+        Returns ``{image prefix: (matched, unmatched)}`` covering every prefix
+        present in the store.
         """
-        matched = 0
+        stats: Dict[str, List[int]] = {}
         for record in self._records:
-            source = rows_by_key.get(record.key)
+            counters = stats.setdefault(record.name, [0, 0])
+            index = indexes_by_prefix.get(record.name)
+            source = None if index is None else index.get(record.key)
             if source is None:
                 record.metrics = {}
                 record.status = None
@@ -526,6 +601,7 @@ class ImageStore:
                 record.excel_status_col = None
                 record.no_data = True
                 record.dirty = False
+                counters[1] += 1
                 continue
             record.status = normalize_status(getattr(source, "status", None))
             record.metrics = dict(getattr(source, "metrics", {}) or {})
@@ -533,9 +609,11 @@ class ImageStore:
             record.excel_status_col = getattr(source, "status_col", None)
             record.no_data = False
             record.dirty = False
-            matched += 1
+            counters[0] += 1
         self._invalidate()
-        return matched, len(self._records) - matched
+        return {
+            prefix: (counters[0], counters[1]) for prefix, counters in stats.items()
+        }
 
     def apply_csv_labels(
         self,

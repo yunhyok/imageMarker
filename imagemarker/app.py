@@ -241,11 +241,6 @@ class ImageMarkerApp:
         self.rgb_canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.rgb_canvas.bind("<Configure>", self.on_canvas_resize)
 
-        self.marker_label = tk.Label(
-            self.image_frame, text="", font=("Arial", 72, "bold"), bg="gray20", fg="white"
-        )
-        self.marker_label.place(relx=0.5, rely=0.5, anchor="center")
-
         self.control_frame = tk.Frame(self.paned)
         self.paned.add(self.control_frame, minsize=180, stretch="always")
 
@@ -909,20 +904,47 @@ class ImageMarkerApp:
             self.display_image()
 
     def flash_status(self, value: Optional[str]) -> None:
-        """Flash the applied status over the image for one second."""
-        text = value if value else BLANK_DISPLAY
-        color = STATUS_OVERLAY_COLORS.get(value, "white")
-        self.marker_label.config(text=text, fg=color)
+        """Flash the applied status over the image for one second.
+
+        Drawn directly on ``rgb_canvas`` (tagged ``"status_flash"``) rather
+        than a separately placed ``Label`` widget, so there is nothing left
+        mapped over the canvas between flashes - a permanently `place()`d
+        overlay label rendered as a persistent dark bar even with empty text.
+        """
         if self._overlay_job is not None:
             try:
                 self.root.after_cancel(self._overlay_job)
             except Exception:  # pragma: no cover - defensive
                 pass
+            self._overlay_job = None
+
+        text = value if value else BLANK_DISPLAY
+        color = STATUS_OVERLAY_COLORS.get(value, "white")
+        try:
+            if not self.rgb_canvas.winfo_exists():
+                return
+            self.rgb_canvas.delete("status_flash")
+            width = self.rgb_canvas.winfo_width()
+            height = self.rgb_canvas.winfo_height()
+            self.rgb_canvas.create_text(
+                width // 2,
+                height // 2,
+                text=text,
+                font=("Arial", 72, "bold"),
+                fill=color,
+                tags="status_flash",
+            )
+        except tk.TclError:  # pragma: no cover - defensive
+            return
         self._overlay_job = self.root.after(1000, self._clear_overlay)
 
     def _clear_overlay(self) -> None:
         self._overlay_job = None
-        self.marker_label.config(text="")
+        try:
+            if self.rgb_canvas.winfo_exists():
+                self.rgb_canvas.delete("status_flash")
+        except tk.TclError:  # pragma: no cover - defensive
+            pass
 
     # ------------------------------------------------------------------ #
     # Editing / navigation

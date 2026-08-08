@@ -111,7 +111,7 @@ first with `build.bat` if not), locates the Inno Setup 6 compiler
 (`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
 
 ```
-dist\ImageMarker-Setup-1.2.0.exe
+dist\ImageMarker-Setup-1.2.1.exe
 ```
 
 The installer installs per-user by default (no administrator prompt,

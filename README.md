@@ -42,9 +42,11 @@ workbook is left untouched.
   checkboxes, plus All/None quick actions; unchecked values are hidden
   from the table and from keyboard navigation.
 - **Keyboard-driven review** — navigate and relabel a large set of images
-  without touching the mouse: arrow keys move by 1/10/100/1000 rows,
-  number keys apply a status to the current selection (multi-select is
-  supported — a label key applies to every selected row).
+  without touching the mouse: up/down arrows move by 1/10/100/1000 rows,
+  number keys apply a status to the current selection, `→` marks `Open`
+  and `←` undoes a mislabel by reverting the row to the label its source
+  file holds (multi-select is supported — a label key applies to every
+  selected row).
 - **Visual feedback** — table rows are color-coded by status, and a large
   overlay flashes the status you just applied for one second.
 - **Column sorting** — click a column header to sort (toggle
@@ -54,9 +56,12 @@ workbook is left untouched.
   full set and the active filter), folder name (plus the number of image
   subfolders walked and duplicates skipped), source file name, and the
   unsaved-change count.
-- **Unsaved-change protection** — every edit is tracked with a dirty flag;
-  the window title and a marker column show unsaved rows, and closing with
-  unsaved changes prompts save / discard / cancel.
+- **Unsaved-change protection** — a row counts as unsaved for as long as
+  its label differs from the one in the source file, so undoing an edit
+  (with `←`, or by simply setting the original label again) also clears
+  the row's unsaved state; the window title and a marker column show
+  unsaved rows, and closing with unsaved changes prompts
+  save / discard / cancel.
 - **Legacy CSV support** — the original CSV workflow (`name,row,node,label`
   + arbitrary extra columns) from the prototype tool still works via its
   own load/save menu items.
@@ -111,7 +116,7 @@ first with `build.bat` if not), locates the Inno Setup 6 compiler
 (`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
 
 ```
-dist\ImageMarker-Setup-1.2.1.exe
+dist\ImageMarker-Setup-1.3.0.exe
 ```
 
 The installer installs per-user by default (no administrator prompt,
@@ -140,7 +145,7 @@ are selected.
 
 | Key             | Status set        |
 |------------------|--------------------|
-| `Left`           | No Active          |
+| `Left`           | (revert to the original label) |
 | `Right`          | Open               |
 | `1`              | Pass               |
 | `2`              | No Active          |
@@ -148,6 +153,12 @@ are selected.
 | `4`              | Open               |
 | `5`              | Short              |
 | `0` or `Delete`  | (clear / blank)    |
+
+`Left` does not assign a label — it puts each selected row back to the
+label its source file holds (the value loaded from the Excel workbook or
+CSV, or the value of the last successful save; blank for rows with no
+source data), which also clears the row's unsaved marker. `No Active` is
+still one keystroke away on `2`.
 
 ## Excel workflow
 

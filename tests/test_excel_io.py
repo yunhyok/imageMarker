@@ -439,6 +439,67 @@ def test_records_without_an_excel_row_are_skipped(workbook_path: Path) -> None:
     assert (written, skipped) == (1, 1)
 
 
+def test_excel_join_captures_the_original_status(workbook_path: Path) -> None:
+    source = ExcelSource.load(str(workbook_path))
+    store = ImageStore(make_records("prefix", [(1, 1), (2, 1), (9, 9)]))
+    store.apply_excel_rows({"prefix": source.index_for_name(NAME_1)})
+
+    labelled, blank, orphan = store.records
+    assert (labelled.status, labelled.original_status) == ("Pass", "Pass")
+    assert (blank.status, blank.original_status) == (None, None)
+    assert (orphan.status, orphan.original_status) == (None, None)
+    assert store.dirty_count == 0
+
+
+def test_reverted_records_are_not_written_back(workbook_path: Path) -> None:
+    """Right-then-Left leaves the workbook completely untouched."""
+    before = read_grid(workbook_path)
+    source = ExcelSource.load(str(workbook_path))
+    store = ImageStore(make_records("prefix", [(1, 1), (1, 2)]))
+    store.apply_excel_rows({"prefix": source.index_for_name(NAME_1)})
+
+    reverted, kept = store.records
+    store.apply_status([reverted], "Open")  # 'Pass' -> 'Open'
+    store.apply_status([kept], "Short")
+    assert store.dirty_count == 2
+
+    store.revert_status([reverted])
+    assert reverted.status == "Pass"
+    assert store.dirty_records() == [kept]
+
+    written, _, skipped = source.write_records(store.dirty_records())
+    assert (written, skipped) == (1, 0)
+
+    after = read_grid(workbook_path)
+    changed = {key for key in before if before[key] != after[key]}
+    assert changed == {(3, STATUS_COL)}  # only the row that stayed edited
+    assert after[(2, STATUS_COL)] == "Pass"  # the reverted row is as it was
+
+
+def test_save_moves_the_revert_target_to_the_saved_value(workbook_path: Path) -> None:
+    source = ExcelSource.load(str(workbook_path))
+    store = ImageStore(make_records("prefix", [(1, 1)]))
+    store.apply_excel_rows({"prefix": source.index_for_name(NAME_1)})
+    record = store.records[0]
+    assert record.original_status == "Pass"
+
+    store.apply_status([record], "Open")
+    dirty = store.dirty_records()
+    written, _, _ = source.write_records(dirty)
+    assert written == 1
+    store.clear_dirty([r for r in dirty if r.can_write_back])  # as save_excel does
+    assert store.dirty_count == 0
+    assert record.original_status == "Open"
+
+    # a revert after the save restores the SAVED value, not the pre-session one
+    store.apply_status([record], "Short")
+    assert store.dirty_count == 1
+    store.revert_status([record])
+    assert record.status == "Open"
+    assert store.dirty_count == 0
+    assert read_grid(workbook_path)[(2, STATUS_COL)] == "Open"
+
+
 def test_permission_error_is_reported_as_a_clean_exception(
     workbook_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

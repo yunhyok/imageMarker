@@ -170,6 +170,11 @@ class ImageRecord:
     node: int
     path: Optional[str] = None
     status: Optional[str] = None
+    #: The status the record officially has in the source file: blank after a
+    #: bare folder load, the joined value after an Excel/CSV load and the saved
+    #: value after a successful save.  It is what ``Left`` reverts to and what
+    #: :attr:`dirty` is measured against.
+    original_status: Optional[str] = None
     metrics: Dict[str, Optional[float]] = field(default_factory=dict)
     #: 1-based worksheet row index of the matched Excel row (``None`` if unmatched).
     excel_row: Optional[int] = None
@@ -177,10 +182,18 @@ class ImageRecord:
     excel_status_col: Optional[int] = None
     #: ``True`` while the record has no backing data row.
     no_data: bool = True
-    #: ``True`` when the status was edited but not yet saved.
-    dirty: bool = False
     #: Extra CSV columns preserved verbatim on save.
     extra_fields: Dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.status = normalize_status(self.status)
+        # A record built with a status but no explicit original describes a
+        # freshly loaded row, so it starts out clean.
+        self.original_status = (
+            self.status
+            if self.original_status is None
+            else normalize_status(self.original_status)
+        )
 
     @property
     def key(self) -> Tuple[int, int]:
@@ -198,15 +211,36 @@ class ImageRecord:
     def metric_text(self, column: str) -> str:
         return format_metric(self.metrics.get(column))
 
-    def set_status(self, value: Any, mark_dirty: bool = True) -> bool:
+    @property
+    def dirty(self) -> bool:
+        """``True`` while the status differs from the one in the source file.
+
+        Dirtiness is derived from the values rather than latched by a flag, so
+        undoing an edit - by reverting or by simply retyping the original
+        label - brings the record back to a clean state on its own.
+        """
+        return normalize_status(self.status) != normalize_status(self.original_status)
+
+    def set_status(self, value: Any) -> bool:
         """Set the status, returning ``True`` when it actually changed."""
         new_value = normalize_status(value)
         if new_value == self.status:
             return False
         self.status = new_value
-        if mark_dirty:
-            self.dirty = True
         return True
+
+    def load_status(self, value: Any) -> None:
+        """Adopt ``value`` as both the current and the officially stored status."""
+        self.status = normalize_status(value)
+        self.original_status = self.status
+
+    def commit_status(self) -> None:
+        """Remember the current status as the one the source file now holds."""
+        self.original_status = self.status
+
+    def revert_status(self) -> bool:
+        """Restore the source file's status; ``True`` when it actually changed."""
+        return self.set_status(self.original_status)
 
     @property
     def can_write_back(self) -> bool:
@@ -556,6 +590,16 @@ class ImageStore:
             self._invalidate()
         return changed
 
+    def revert_status(self, records: Iterable[ImageRecord]) -> List[ImageRecord]:
+        """Restore every record's original status; returns the ones that changed."""
+        changed: List[ImageRecord] = []
+        for record in records:
+            if record.revert_status():
+                changed.append(record)
+        if changed:
+            self._invalidate()
+        return changed
+
     def dirty_records(self) -> List[ImageRecord]:
         return [record for record in self._records if record.dirty]
 
@@ -564,8 +608,14 @@ class ImageStore:
         return sum(1 for record in self._records if record.dirty)
 
     def clear_dirty(self, records: Optional[Iterable[ImageRecord]] = None) -> None:
+        """Mark the current statuses as saved (call after a successful write).
+
+        ``dirty`` is value based, so "clearing" it means recording that the
+        source file now holds the current status - which is also what a later
+        revert will restore.
+        """
         for record in self._records if records is None else records:
-            record.dirty = False
+            record.commit_status()
 
     # -- data source join -------------------------------------------------- #
 
@@ -596,19 +646,19 @@ class ImageStore:
             source = None if index is None else index.get(record.key)
             if source is None:
                 record.metrics = {}
-                record.status = None
+                record.load_status(None)
                 record.excel_row = None
                 record.excel_status_col = None
                 record.no_data = True
-                record.dirty = False
                 counters[1] += 1
                 continue
-            record.status = normalize_status(getattr(source, "status", None))
+            # The joined value is what the workbook officially holds, so it
+            # becomes both the current and the original status (clean record).
+            record.load_status(getattr(source, "status", None))
             record.metrics = dict(getattr(source, "metrics", {}) or {})
             record.excel_row = getattr(source, "sheet_row", None)
             record.excel_status_col = getattr(source, "status_col", None)
             record.no_data = False
-            record.dirty = False
             counters[0] += 1
         self._invalidate()
         return {
@@ -626,9 +676,8 @@ class ImageStore:
             key = (record.name, record.row, record.node)
             if key not in labels:
                 continue
-            record.status = normalize_status(labels[key])
+            record.load_status(labels[key])
             record.no_data = False
-            record.dirty = False
             if extras is not None:
                 record.extra_fields = dict(extras.get(key, {}))
             matched += 1

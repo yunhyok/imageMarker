@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from imagemarker.data_model import (  # noqa: E402
     BLANK_DISPLAY,
     STATUS_NO_ACTIVE,
+    STATUS_OPEN,
     STATUS_PASS,
     ImageRecord,
     ImageStore,
@@ -242,11 +243,84 @@ def test_set_status_marks_dirty_only_on_change() -> None:
     assert record.status == "No Active"
     assert record.dirty is True
 
-    record.dirty = False
+    record.commit_status()  # as if the record had just been saved
+    assert record.dirty is False
+
     assert record.set_status("   ") is True  # blank clears the cell
     assert record.status is None
     assert record.status_text == ""
     assert record.dirty is True
+
+
+# --------------------------------------------------------------------------- #
+# original_status / value based dirty
+# --------------------------------------------------------------------------- #
+
+def test_a_freshly_scanned_record_has_no_original_status() -> None:
+    record = ImageRecord(name="s", row=1, node=1)
+    assert record.status is None
+    assert record.original_status is None
+    assert record.dirty is False
+
+
+def test_dirty_is_derived_from_the_value_not_a_flag() -> None:
+    record = ImageRecord(name="s", row=1, node=1)
+    record.load_status("Pass")
+    assert (record.status, record.original_status, record.dirty) == ("Pass", "Pass", False)
+
+    record.set_status(STATUS_OPEN)
+    assert record.dirty is True
+
+    # retyping the original value heals the record without any explicit reset
+    record.set_status("Pass")
+    assert record.dirty is False
+
+
+def test_revert_status_restores_the_original_value() -> None:
+    record = ImageRecord(name="s", row=1, node=1)
+    record.load_status("No Gate Effect")
+
+    record.set_status(STATUS_OPEN)
+    assert record.dirty is True
+
+    assert record.revert_status() is True
+    assert record.status == "No Gate Effect"
+    assert record.dirty is False
+    # already on the original value -> nothing changes
+    assert record.revert_status() is False
+
+
+def test_revert_restores_a_blank_original() -> None:
+    record = ImageRecord(name="s", row=1, node=1)  # never seen in a data file
+    record.set_status(STATUS_OPEN)
+    assert record.dirty is True
+
+    assert record.revert_status() is True
+    assert record.status is None
+    assert record.status_text == ""
+    assert record.dirty is False
+
+
+def test_blank_and_whitespace_originals_count_as_equal() -> None:
+    record = ImageRecord(name="s", row=1, node=1, status="   ", original_status="")
+    assert (record.status, record.original_status) == (None, None)
+    assert record.dirty is False
+
+
+def test_commit_status_moves_the_revert_target_to_the_saved_value() -> None:
+    record = ImageRecord(name="s", row=1, node=1)
+    record.load_status("Pass")
+
+    record.set_status(STATUS_OPEN)
+    record.commit_status()  # saved: the file now holds 'Open'
+    assert record.dirty is False
+
+    record.set_status(STATUS_NO_ACTIVE)
+    assert record.dirty is True
+    record.revert_status()
+    # back to the SAVED value, not to the value loaded at session start
+    assert record.status == STATUS_OPEN
+    assert record.dirty is False
 
 
 def test_can_write_back_requires_worksheet_coordinates() -> None:
@@ -446,6 +520,55 @@ def test_clear_dirty_for_a_subset() -> None:
     assert store.dirty_records() == [store.records[1]]
 
 
+def test_store_revert_status_restores_originals_and_clears_dirty() -> None:
+    store = make_store(["Pass", "No Active", None])
+    store.apply_status(store.records, STATUS_OPEN)
+    assert store.dirty_count == 3
+
+    changed = store.revert_status(store.records)
+
+    assert changed == store.records
+    assert [record.status for record in store.records] == ["Pass", "No Active", None]
+    assert store.dirty_count == 0
+    assert store.dirty_records() == []
+    # nothing left to revert
+    assert store.revert_status(store.records) == []
+
+
+def test_store_revert_status_touches_only_the_given_records() -> None:
+    store = make_store(["Pass", "Pass"])
+    store.apply_status(store.records, STATUS_OPEN)
+
+    changed = store.revert_status([store.records[0]])
+
+    assert changed == [store.records[0]]
+    assert store.records[0].status == "Pass"
+    assert store.records[1].status == STATUS_OPEN
+    assert store.dirty_records() == [store.records[1]]
+
+
+def test_revert_reapplies_the_filter() -> None:
+    """A reverted row leaves a filtered view just like an edited one."""
+    store = make_store(["Pass", "Pass"])
+    store.apply_status([store.records[0]], STATUS_OPEN)
+    store.set_filter([STATUS_OPEN])
+    assert store.visible_count == 1
+
+    store.revert_status([store.records[0]])
+    assert store.visible_count == 0
+
+
+def test_manually_retyping_the_original_value_clears_the_dirty_state() -> None:
+    store = make_store(["Pass", "No Active"])
+    store.apply_status([store.records[0]], STATUS_OPEN)
+    assert store.dirty_count == 1
+
+    store.apply_status([store.records[0]], STATUS_PASS)
+
+    assert store.dirty_count == 0
+    assert store.dirty_records() == []
+
+
 # --------------------------------------------------------------------------- #
 # CSV join / store housekeeping
 # --------------------------------------------------------------------------- #
@@ -467,6 +590,28 @@ def test_apply_csv_labels_matches_on_name_row_node() -> None:
     assert store.records[0].no_data is False
     assert store.records[1].status is None
     assert store.records[1].no_data is True
+
+
+def test_apply_csv_labels_captures_the_original_status() -> None:
+    store = ImageStore(
+        [
+            ImageRecord(name="s", row=1, node=1),
+            ImageRecord(name="s", row=1, node=2),
+        ]
+    )
+    store.apply_csv_labels({("s", 1, 1): "Pass", ("s", 1, 2): None})
+
+    loaded, blank = store.records
+    assert (loaded.status, loaded.original_status) == ("Pass", "Pass")
+    assert (blank.status, blank.original_status) == (None, None)
+    assert store.dirty_count == 0
+
+    # an edit is undone by reverting to the label the CSV held
+    store.apply_status([loaded], STATUS_OPEN)
+    assert store.dirty_records() == [loaded]
+    store.revert_status([loaded])
+    assert loaded.status == "Pass"
+    assert store.dirty_count == 0
 
 
 def test_set_records_resets_filter_sort_and_current() -> None:

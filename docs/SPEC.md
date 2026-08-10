@@ -100,10 +100,15 @@ imageMarker/
 ### Status editing
 - Any row's status may be changed (the prototype's changeable_labels restriction
   is REMOVED — this tool's purpose is correcting already-assigned labels).
-- Keys: Left = `No Active`, Right = `Open` (compat);
+- Keys: Left = revert the selected row(s) to their original label, Right = `Open`;
   `1`=Pass, `2`=No Active, `3`=No Gate Effect, `4`=Open, `5`=Short,
   `0` or Delete = clear (blank).
-- Every change sets a per-record `dirty` flag (cleared only on successful save).
+- Every record keeps an `original_status` — the label the source file officially
+  holds: blank after a bare folder load, the joined value after an Excel/CSV
+  load, and the written value after a successful save. Left restores it.
+- `dirty` is derived from the values (`status != original_status`), not latched
+  by a flag, so reverting — or retyping the original label — makes a record
+  clean again on its own and keeps it out of the write-back set.
   Dirty rows show a `*` marker column or bold text; window title shows `*` and
   unsaved count. Closing the window with unsaved changes prompts
   save / discard / cancel.

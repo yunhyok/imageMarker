@@ -52,8 +52,9 @@ TABLE_COLUMNS: Tuple[Tuple[str, str, int, str, str], ...] = (
 )
 
 #: Status hotkeys (key symbol -> status value; ``None`` clears the cell).
+#: ``<Left>`` is NOT here - it reverts instead of assigning (see
+#: :meth:`ImageMarkerApp.revert_status`).
 STATUS_HOTKEYS: Tuple[Tuple[str, Optional[str]], ...] = (
-    ("<Left>", STATUS_NO_ACTIVE),
     ("<Right>", STATUS_OPEN),
     ("<Key-1>", STATUS_PASS),
     ("<Key-2>", STATUS_NO_ACTIVE),
@@ -65,7 +66,7 @@ STATUS_HOTKEYS: Tuple[Tuple[str, Optional[str]], ...] = (
 )
 
 NAV_HINT = (
-    "← No Active | → Open | 1 Pass  2 No Active  3 No Gate Effect  "
+    "← Revert | → Open | 1 Pass  2 No Active  3 No Gate Effect  "
     "4 Open  5 Short  0/Del clear | ↑↓ Navigate | Ctrl±10 | "
     "Shift±100 | PgUp/Dn±1000"
 )
@@ -379,6 +380,8 @@ class ImageMarkerApp:
     def bind_keys(self) -> None:
         for sequence, value in STATUS_HOTKEYS:
             self.root.bind(sequence, lambda event, v=value: self.set_status(v))
+
+        self.root.bind("<Left>", lambda event: self.revert_status())
 
         self.root.bind("<Up>", lambda event: self.navigate(-1))
         self.root.bind("<Down>", lambda event: self.navigate(1))
@@ -960,6 +963,34 @@ class ImageMarkerApp:
         if not changed:
             return
 
+        self._after_status_change(changed)
+        self.flash_status(value)
+
+    def revert_status(self) -> None:
+        """Restore every selected row to the label held by the source file.
+
+        This is the counterpart of :meth:`set_status`: instead of assigning a
+        fixed value it puts each record back to its ``original_status`` (blank
+        for rows that were never in the data file), which also makes the record
+        clean again.
+        """
+        targets = self.selected_records()
+        if not targets:
+            return
+
+        changed = self.store.revert_status(targets)
+        if not changed:
+            return
+
+        self._after_status_change(changed)
+
+        # After the revert every target sits on its original value; flash it
+        # when they agree, otherwise just say what happened.
+        restored = {record.status for record in targets}
+        self.flash_status(restored.pop() if len(restored) == 1 else "Reverted")
+
+    def _after_status_change(self, changed: Sequence[ImageRecord]) -> None:
+        """Refresh the UI after ``changed`` records got a new status."""
         # The dropdown always mirrors the status values actually present, so it
         # is rebuilt whenever a value appears or disappears.
         present = {status_display(status) for status in self.store.unique_statuses()}
@@ -978,7 +1009,6 @@ class ImageMarkerApp:
                 self.refresh_record_row(record)
 
         self.update_info()
-        self.flash_status(value)
 
     def navigate(self, delta: int) -> None:
         if not self.store.visible():

@@ -3,8 +3,9 @@
 > 한국어 문서: [README.ko.md](README.ko.md)
 
 A Windows desktop tool for reviewing per-device RGB slice images and
-correcting their `Status` labels directly against the lab's Excel
-spreadsheets (with legacy CSV support retained).
+assigning `Status` labels from a **configurable label set** (GOOD / BAD /
+OPEN by default) directly against the lab's Excel spreadsheets (with legacy
+CSV support retained).
 
 ## What it is
 
@@ -12,8 +13,10 @@ ImageMarker loads a folder of per-device image slices
 (`<name>_rgb_<row>_<node>.png`) — **including every subfolder**, so a whole
 measurement day of `<sample>_slices` folders opens in one go — shows each
 image alongside its metrics in a sortable table, and lets a reviewer
-quickly step through the set and correct the `Status` label with single
-keystrokes. When a source Excel workbook is loaded, edited statuses are
+quickly step through the set and assign a `Status` label with single
+keystrokes. The labels themselves - their names, colours and hotkeys - come
+from a label set you can switch, edit, import and export from the `Labels`
+menu. When a source Excel workbook is loaded, edited statuses are
 written back **in place** — only the `Status` cells of rows you actually
 changed are touched; every other cell, formula, and format in the
 workbook is left untouched.
@@ -41,14 +44,27 @@ workbook is left untouched.
   status value currently present (including a `(blank)` entry) with
   checkboxes, plus All/None quick actions; unchecked values are hidden
   from the table and from keyboard navigation.
+- **Configurable label sets** — the `Labels` menu ships three presets:
+  **GOOD / BAD / OPEN** (default, hotkeys `G` `B` `O`), **PASS / FAIL**
+  (`P` `F`) and **Electrical (legacy 1.x)** (`Pass`, `No Active`,
+  `No Gate Effect`, `Open`, `Short` on `1`–`5`, `→` = `Open`, exactly as
+  ImageMarker 1.x). *Edit label set…* opens an editor where you add, rename,
+  reorder and recolour labels and bind any number of hotkeys to each (press
+  the key to capture it); duplicate names, duplicate keys and reserved
+  navigation keys are rejected. Sets can be exported to / imported from a
+  small JSON file so a team shares one definition, and the active set is
+  remembered between sessions.
 - **Keyboard-driven review** — navigate and relabel a large set of images
   without touching the mouse: up/down arrows move by 1/10/100/1000 rows,
-  number keys apply a status to the current selection, `→` marks `Open`
-  and `←` undoes a mislabel by reverting the row to the label its source
-  file holds (multi-select is supported — a label key applies to every
-  selected row).
-- **Visual feedback** — table rows are color-coded by status, and a large
-  overlay flashes the status you just applied for one second.
+  the label hotkeys (or digits `1`–`9`, which always follow the order of the
+  set) apply a label to the current selection, `0`/`Delete` clear it and
+  `←` undoes a mislabel by reverting the row to the label its source file
+  holds (multi-select is supported — a label key applies to every selected
+  row). An optional *auto-advance* moves to the next row after each label.
+- **Label bar** — one coloured button per label (with its hotkeys) plus
+  Revert / Clear, for mouse-driven review.
+- **Visual feedback** — table rows are color-coded with the label's colour,
+  and a large overlay flashes the label you just applied for one second.
 - **Column sorting** — click a column header to sort (toggle
   ascending/descending); the current selection follows the item you were
   viewing across the re-sort.
@@ -116,7 +132,7 @@ first with `build.bat` if not), locates the Inno Setup 6 compiler
 (`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
 
 ```
-dist\ImageMarker-Setup-1.3.0.exe
+dist\ImageMarker-Setup-2.0.0.exe
 ```
 
 The installer installs per-user by default (no administrator prompt,
@@ -138,27 +154,65 @@ from Windows Settings → Apps like any other installed program.
 Navigation and the position counter operate on the currently filtered
 view when a status filter is active.
 
-### Status labeling
+### Labeling
 
 Applies to the current row, or to every selected row when multiple rows
-are selected.
+are selected. The label keys depend on the active label set (`Labels`
+menu); the defaults are:
 
-| Key             | Status set        |
-|------------------|--------------------|
-| `Left`           | (revert to the original label) |
-| `Right`          | Open               |
-| `1`              | Pass               |
-| `2`              | No Active          |
-| `3`              | No Gate Effect     |
-| `4`              | Open               |
-| `5`              | Short              |
-| `0` or `Delete`  | (clear / blank)    |
+| Key             | GOOD / BAD / OPEN (default) | Electrical (legacy 1.x) |
+|-----------------|-----------------------------|-------------------------|
+| `G` / `1`       | GOOD                        | Pass (`1`)              |
+| `B` / `2`       | BAD                         | No Active (`2`)         |
+| `O` / `3`       | OPEN                        | No Gate Effect (`3`)    |
+| `4`, `→`        | —                           | Open                    |
+| `5`             | —                           | Short                   |
+| `Left`          | revert to the original label | revert                 |
+| `0` or `Delete` | clear / blank               | clear / blank           |
 
-`Left` does not assign a label — it puts each selected row back to the
-label its source file holds (the value loaded from the Excel workbook or
-CSV, or the value of the last successful save; blank for rows with no
-source data), which also clears the row's unsaved marker. `No Active` is
-still one keystroke away on `2`.
+Digits `1`–`9` always select labels in the order of the active set (this
+can be switched off in the `Labels` menu); letters work with or without
+Shift/Caps Lock. `Left` does not assign a label — it puts each selected row
+back to the label its source file holds (the value loaded from the Excel
+workbook or CSV, or the value of the last successful save; blank for rows
+with no source data), which also clears the row's unsaved marker.
+
+`Ctrl+O` loads an image folder, `Ctrl+S` saves to Excel, `Ctrl+L` opens the
+label set editor, and *Help → Keyboard shortcuts* lists the bindings of the
+active set.
+
+## Label sets
+
+`Labels` menu:
+
+- the three presets (radio items) — choosing one replaces the active set;
+- **Edit label set…** — editor for the active set (a preset edited this way
+  becomes a custom set; the presets themselves never change);
+- **Import label set…** / **Export label set…** — JSON files like the one
+  below;
+- **Digit keys 1-9 select labels in order** and **Auto-advance to next row
+  after labeling** toggles.
+
+The active set and the two toggles are stored in
+`%APPDATA%\ImageMarker\config.json`.
+
+```json
+{
+  "schema_version": 1,
+  "name": "GOOD / BAD / OPEN",
+  "labels": [
+    {"name": "GOOD", "color": "#2e9e4f", "keys": ["g"], "description": "Device looks functional"},
+    {"name": "BAD",  "color": "#d64545", "keys": ["b"]},
+    {"name": "OPEN", "color": "#e8a33d", "keys": ["o"]}
+  ]
+}
+```
+
+`name` is written verbatim to the `Status` cell; `keys` use tkinter key
+names (`g`, `1`, `Right`, `F5`, `Insert`, …). Up to 9 labels per set. Status
+values already present in a workbook that are not part of the active set are
+kept and shown as they are (white rows) — the set only decides what the
+hotkeys write and how known labels are coloured.
 
 ## Excel workflow
 
@@ -196,9 +250,15 @@ ever modified.
 
 The original CSV workflow from the prototype (`name,row,node,label`, plus
 any extra columns) is kept working via its own load/save menu items, for
-folders that don't have an Excel workbook.
+folders that don't have an Excel workbook. Labels are read in the active
+set's spelling (`good` → `GOOD`); the 1.x aliases (`1` → `Pass`,
+`-1` → `Open`, `ok` → `Pass`, …) are only applied when the aliased label
+exists in the active set, so `GOOD` is no longer silently turned into
+`Pass`.
 
 ## Screenshots
 
-_placeholder — add a screenshot of the main window here (image canvas,
-data table, and status filter dropdown)._
+![ImageMarker 2.0 main window (synthetic sample data)](assets/screenshot.png)
+
+_Main window with the default GOOD / BAD / OPEN set: image canvas, label
+bar, hint line and the colour-coded data table (synthetic sample data)._

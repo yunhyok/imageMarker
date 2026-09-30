@@ -19,13 +19,6 @@ from . import __version__
 from .csv_io import BASE_HEADERS, load_label_csv, save_label_csv
 from .data_model import (
     BLANK_DISPLAY,
-    STATUS_COLORS,
-    STATUS_NO_ACTIVE,
-    STATUS_NO_GATE_EFFECT,
-    STATUS_OPEN,
-    STATUS_OVERLAY_COLORS,
-    STATUS_PASS,
-    STATUS_SHORT,
     FolderScanResult,
     ImageRecord,
     ImageStore,
@@ -33,8 +26,21 @@ from .data_model import (
     status_display,
 )
 from .excel_io import ExcelError, ExcelFileLockedError, ExcelSource
+from .label_dialogs import LabelSetDialog
+from .label_sets import (
+    AppConfig,
+    LabelSet,
+    find_preset,
+    is_dark,
+    key_display,
+    presets,
+)
 
 APP_TITLE = "ImageMarker - RGB Viewer"
+
+#: Fixed keys (not part of the label set).  ``Left`` reverts, these clear.
+CLEAR_KEYS: Tuple[str, ...] = ("0", "Delete")
+NAV_HINT = "↑↓ Navigate | Ctrl±10 | Shift±100 | PgUp/Dn±1000 | ← Revert | 0/Del Clear"
 
 #: (column id, heading, width, anchor, sort key)
 TABLE_COLUMNS: Tuple[Tuple[str, str, int, str, str], ...] = (
@@ -50,27 +56,6 @@ TABLE_COLUMNS: Tuple[Tuple[str, str, int, str, str], ...] = (
     ("mobility", "Carrier Mobility", 110, "e", "Carrier Mobility"),
     ("status", "Status", 130, "center", "status"),
 )
-
-#: Status hotkeys (key symbol -> status value; ``None`` clears the cell).
-#: ``<Left>`` is NOT here - it reverts instead of assigning (see
-#: :meth:`ImageMarkerApp.revert_status`).
-STATUS_HOTKEYS: Tuple[Tuple[str, Optional[str]], ...] = (
-    ("<Right>", STATUS_OPEN),
-    ("<Key-1>", STATUS_PASS),
-    ("<Key-2>", STATUS_NO_ACTIVE),
-    ("<Key-3>", STATUS_NO_GATE_EFFECT),
-    ("<Key-4>", STATUS_OPEN),
-    ("<Key-5>", STATUS_SHORT),
-    ("<Key-0>", None),
-    ("<Delete>", None),
-)
-
-NAV_HINT = (
-    "← Revert | → Open | 1 Pass  2 No Active  3 No Gate Effect  "
-    "4 Open  5 Short  0/Del clear | ↑↓ Navigate | Ctrl±10 | "
-    "Shift±100 | PgUp/Dn±1000"
-)
-
 
 #: Combobox entry meaning "this sample has no Excel counterpart".
 SKIP_CHOICE = "(skip)"
@@ -187,10 +172,16 @@ class NameMappingDialog(tk.Toplevel):
 class ImageMarkerApp:
     """The main application window."""
 
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, config: Optional[AppConfig] = None) -> None:
         self.root = root
         self.root.title(APP_TITLE)
         self.root.geometry("1400x900")
+
+        #: Persisted preferences (active label set, digit ordinals, auto-advance).
+        self.config: AppConfig = config if config is not None else AppConfig.load()
+        self._label_set_var = tk.StringVar(value=self._label_set_choice_key())
+        self._digit_ordinals_var = tk.BooleanVar(value=self.config.digit_ordinals)
+        self._auto_advance_var = tk.BooleanVar(value=self.config.auto_advance)
 
         self.store = ImageStore()
         self.image_folder: Optional[str] = None
@@ -213,6 +204,7 @@ class ImageMarkerApp:
         self._filter_vars: Dict[str, tk.BooleanVar] = {}
         self._filter_lookup: Dict[str, Optional[str]] = {}
         self._status_tags: Dict[Optional[str], str] = {}
+        self._label_buttons: List[tk.Button] = []
 
         self.setup_ui()
         self.bind_keys()
@@ -291,8 +283,16 @@ class ImageMarkerApp:
         )
         self.info_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
 
-        hint = tk.Label(self.control_frame, text=NAV_HINT, font=("Arial", 8), fg="blue")
-        hint.pack(side=tk.TOP, fill=tk.X, padx=5)
+        # Label bar: one button per label of the active set (mouse alternative
+        # to the hotkeys) plus revert / clear.
+        self.label_bar = tk.Frame(self.control_frame)
+        self.label_bar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=(0, 2))
+
+        self.hint_label = tk.Label(
+            self.control_frame, text="", font=("Arial", 8), fg="blue", anchor="w"
+        )
+        self.hint_label.pack(side=tk.TOP, fill=tk.X, padx=5)
+        self.rebuild_label_bar()
 
         table_frame = tk.Frame(self.control_frame)
         table_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -351,10 +351,14 @@ class ImageMarkerApp:
     def _build_menu(self) -> None:
         menubar = tk.Menu(self.root)
         file_menu = tk.Menu(menubar, tearoff=False)
-        file_menu.add_command(label="Load Image Folder...", command=self.load_folder)
+        file_menu.add_command(
+            label="Load Image Folder...", command=self.load_folder, accelerator="Ctrl+O"
+        )
         file_menu.add_separator()
         file_menu.add_command(label="Open Excel...", command=self.open_excel)
-        file_menu.add_command(label="Save to Excel", command=self.save_excel)
+        file_menu.add_command(
+            label="Save to Excel", command=self.save_excel, accelerator="Ctrl+S"
+        )
         file_menu.add_separator()
         file_menu.add_command(label="Load CSV...", command=self.load_csv)
         file_menu.add_command(label="Save CSV...", command=self.save_csv)
@@ -362,26 +366,221 @@ class ImageMarkerApp:
         file_menu.add_command(label="Exit", command=self.on_close)
         menubar.add_cascade(label="File", menu=file_menu)
 
+        self.labels_menu = tk.Menu(menubar, tearoff=False)
+        menubar.add_cascade(label="Labels", menu=self.labels_menu)
+        self.rebuild_labels_menu()
+
         help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(label="Keyboard shortcuts", command=self._show_shortcuts)
         help_menu.add_command(label="About", command=self._show_about)
         menubar.add_cascade(label="Help", menu=help_menu)
 
         self.root.config(menu=menubar)
         self.file_menu = file_menu
 
+    # ------------------------------------------------------------------ #
+    # Label sets
+    # ------------------------------------------------------------------ #
+
+    @property
+    def label_set(self) -> LabelSet:
+        return self.config.label_set
+
+    def _label_set_choice_key(self) -> str:
+        """Radio value identifying the active set in the Labels menu."""
+        return "preset:" + self.label_set.name if self.label_set.preset else "custom"
+
+    def rebuild_labels_menu(self) -> None:
+        """(Re)populate the Labels menu: presets, the custom set, editing commands."""
+        menu = self.labels_menu
+        menu.delete(0, tk.END)
+        self._label_set_var.set(self._label_set_choice_key())
+        for preset in presets():
+            menu.add_radiobutton(
+                label=preset.name,
+                variable=self._label_set_var,
+                value="preset:" + preset.name,
+                command=lambda name=preset.name: self.use_preset(name),
+            )
+        if not self.label_set.preset:
+            menu.add_radiobutton(
+                label="Custom: %s" % self.label_set.name,
+                variable=self._label_set_var,
+                value="custom",
+                state=tk.DISABLED,
+            )
+        menu.add_separator()
+        menu.add_command(
+            label="Edit label set...", command=self.edit_label_set, accelerator="Ctrl+L"
+        )
+        menu.add_command(label="Import label set...", command=self.import_label_set)
+        menu.add_command(label="Export label set...", command=self.export_label_set)
+        menu.add_separator()
+        menu.add_checkbutton(
+            label="Digit keys 1-9 select labels in order",
+            variable=self._digit_ordinals_var,
+            command=self._on_option_changed,
+        )
+        menu.add_checkbutton(
+            label="Auto-advance to next row after labeling",
+            variable=self._auto_advance_var,
+            command=self._on_option_changed,
+        )
+
+    def _on_option_changed(self) -> None:
+        self.config.digit_ordinals = bool(self._digit_ordinals_var.get())
+        self.config.auto_advance = bool(self._auto_advance_var.get())
+        self.rebuild_label_bar()
+        self._save_config()
+
+    def _save_config(self) -> None:
+        try:
+            self.config.save()
+        except OSError as exc:
+            messagebox.showwarning(
+                "Settings", "Could not save the settings file:\n%s" % exc
+            )
+
+    def apply_label_set(self, label_set: LabelSet) -> None:
+        """Make ``label_set`` active: menu, label bar, hint, table colours."""
+        self.config.label_set = label_set
+        self._status_tags = {}
+        self.rebuild_labels_menu()
+        self.rebuild_label_bar()
+        self.update_table()
+        self.update_info()
+        self._save_config()
+
+    def use_preset(self, name: str) -> None:
+        preset = find_preset(name)
+        if preset is not None:
+            self.apply_label_set(preset)
+
+    def edit_label_set(self) -> None:
+        dialog = LabelSetDialog(self.root, self.label_set)
+        self.root.wait_window(dialog)
+        result = dialog.result
+        if result is None:
+            self._label_set_var.set(self._label_set_choice_key())
+            return
+        # Editing a preset without changing anything keeps it a preset.
+        for preset in presets():
+            if result.name == preset.name and result.same_labels_as(preset):
+                self.apply_label_set(preset)
+                return
+        self.apply_label_set(result.copy(preset=False))
+
+    def import_label_set(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Import label set",
+            filetypes=[("Label set JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            label_set = LabelSet.load(path)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Import label set", "Could not import the label set:\n%s" % exc)
+            return
+        self.apply_label_set(label_set)
+
+    def export_label_set(self) -> None:
+        default_name = "".join(
+            ch if ch.isalnum() or ch in "-_" else "_" for ch in self.label_set.name
+        ).strip("_") or "label_set"
+        path = filedialog.asksaveasfilename(
+            title="Export label set",
+            defaultextension=".json",
+            initialfile=default_name + ".json",
+            filetypes=[("Label set JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            self.label_set.save(path)
+        except OSError as exc:
+            messagebox.showerror("Export label set", "Could not write the file:\n%s" % exc)
+            return
+        messagebox.showinfo("Export label set", "Saved %s" % os.path.basename(path))
+
+    def rebuild_label_bar(self) -> None:
+        """One coloured button per label, followed by Revert and Clear."""
+        for child in self.label_bar.winfo_children():
+            child.destroy()
+        self._label_buttons = []
+        for index, label in enumerate(self.label_set.labels, start=1):
+            keys = [key_display(key) for key in label.keys]
+            if self.config.digit_ordinals and index <= 9 and str(index) not in label.keys:
+                keys.append(str(index))
+            text = label.name if not keys else "%s  [%s]" % (label.name, "/".join(keys))
+            button = tk.Button(
+                self.label_bar,
+                text=text,
+                bg=label.color,
+                fg="white" if is_dark(label.color) else "black",
+                activebackground=label.row_color,
+                font=("Arial", 9, "bold"),
+                relief=tk.RAISED,
+                command=lambda value=label.name: self.set_status(value),
+            )
+            button.pack(side=tk.LEFT, padx=(0, 4), pady=2)
+            self._label_buttons.append(button)
+        tk.Button(
+            self.label_bar, text="Revert  [←]", command=self.revert_status, font=("Arial", 9)
+        ).pack(side=tk.LEFT, padx=(12, 4), pady=2)
+        tk.Button(
+            self.label_bar,
+            text="Clear  [0/Del]",
+            command=lambda: self.set_status(None),
+            font=("Arial", 9),
+        ).pack(side=tk.LEFT, padx=(0, 4), pady=2)
+        tk.Label(
+            self.label_bar, text="Set: %s" % self.label_set.name, font=("Arial", 8), fg="gray30"
+        ).pack(side=tk.RIGHT, padx=4)
+        self.hint_label.config(
+            text=self.label_set.hint_text(self.config.digit_ordinals) + "   |   " + NAV_HINT
+        )
+
+    def _show_shortcuts(self) -> None:
+        lines = ["Labels (active set: %s)" % self.label_set.name, ""]
+        for index, label in enumerate(self.label_set.labels, start=1):
+            keys = [key_display(key) for key in label.keys]
+            if self.config.digit_ordinals and index <= 9 and str(index) not in label.keys:
+                keys.append(str(index))
+            lines.append("  %-20s %s" % (label.name, ", ".join(keys) or "(no key)"))
+        lines += [
+            "",
+            "  Left            revert to the label in the source file",
+            "  0 / Delete      clear the label",
+            "",
+            "Navigation",
+            "  Up / Down                 move by 1",
+            "  Ctrl + Up / Down          move by 10",
+            "  Shift + Up / Down         move by 100",
+            "  Page Up / Page Down       move by 1000",
+            "",
+            "File",
+            "  Ctrl+O   load image folder      Ctrl+S   save to Excel",
+            "  Ctrl+L   edit label set",
+        ]
+        messagebox.showinfo("Keyboard shortcuts", "\n".join(lines))
+
     def _show_about(self) -> None:
         messagebox.showinfo(
             "About ImageMarker",
-            "ImageMarker %s\n\nReview RGB slice images and correct their Status "
-            "labels.\nOnly the Status column of the source workbook is ever "
-            "modified." % __version__,
+            "ImageMarker %s\n\nReview RGB slice images and assign labels from a "
+            "configurable label set (GOOD / BAD / OPEN by default).\nOnly the "
+            "Status column of the source workbook is ever modified." % __version__,
         )
 
     def bind_keys(self) -> None:
-        for sequence, value in STATUS_HOTKEYS:
-            self.root.bind(sequence, lambda event, v=value: self.set_status(v))
-
+        # One generic handler dispatches label keys against the active set so
+        # the bindings follow the label set without re-binding.
+        self.root.bind("<KeyPress>", self._on_key_press)
         self.root.bind("<Left>", lambda event: self.revert_status())
+        self.root.bind("<Control-o>", lambda event: self.load_folder())
+        self.root.bind("<Control-s>", lambda event: self.save_excel())
+        self.root.bind("<Control-l>", lambda event: self.edit_label_set())
 
         self.root.bind("<Up>", lambda event: self.navigate(-1))
         self.root.bind("<Down>", lambda event: self.navigate(1))
@@ -571,7 +770,7 @@ class ImageMarkerApp:
             return
 
         try:
-            data = load_label_csv(path)
+            data = load_label_csv(path, self.label_set)
         except Exception as exc:
             messagebox.showerror("Error", "Failed to load CSV: %s" % exc)
             return
@@ -708,7 +907,7 @@ class ImageMarkerApp:
         if tag is None:
             tag = "status_%d" % len(self._status_tags)
             self._status_tags[status] = tag
-            self.tree.tag_configure(tag, background=STATUS_COLORS.get(status, "white"))
+            self.tree.tag_configure(tag, background=self.label_set.color_for(status))
         return tag
 
     def _row_tags(self, record: ImageRecord) -> Tuple[str, ...]:
@@ -922,7 +1121,7 @@ class ImageMarkerApp:
             self._overlay_job = None
 
         text = value if value else BLANK_DISPLAY
-        color = STATUS_OVERLAY_COLORS.get(value, "white")
+        color = self.label_set.overlay_color_for(value)
         try:
             if not self.rgb_canvas.winfo_exists():
                 return
@@ -953,18 +1152,41 @@ class ImageMarkerApp:
     # Editing / navigation
     # ------------------------------------------------------------------ #
 
+    def _on_key_press(self, event: "tk.Event") -> Optional[str]:
+        """Dispatch label / clear hotkeys of the active set."""
+        if event.state & 0x4:  # Control held - leave Ctrl+O/S/L and friends alone
+            return None
+        keysym = event.keysym
+        if keysym in CLEAR_KEYS:
+            self.set_status(None)
+            return "break"
+        label = self.label_set.by_key(keysym, self.config.digit_ordinals)
+        if label is None:
+            return None
+        self.set_status(label.name)
+        return "break"
+
     def set_status(self, value: Optional[str]) -> None:
-        """Apply ``value`` to every selected row (any status may be changed)."""
+        """Apply ``value`` to every selected row (any status may be changed).
+
+        ``value`` is written in the active label set's spelling when it names
+        one of its labels; other strings are applied verbatim.
+        """
         targets = self.selected_records()
         if not targets:
             return
 
+        value = self.label_set.canonical(value)
         changed = self.store.apply_status(targets, value)
         if not changed:
+            if self.config.auto_advance and len(targets) == 1:
+                self.navigate(1)
             return
 
         self._after_status_change(changed)
         self.flash_status(value)
+        if self.config.auto_advance and len(targets) == 1:
+            self.navigate(1)
 
     def revert_status(self) -> None:
         """Restore every selected row to the label held by the source file.

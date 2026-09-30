@@ -18,6 +18,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, 
 # Status values
 # --------------------------------------------------------------------------- #
 
+# Statuses of the fixed set ImageMarker 1.x shipped with.  Since v2.0 the
+# label set is configurable (see :mod:`imagemarker.label_sets`); these
+# constants only remain for the legacy CSV aliases, the "Electrical (legacy
+# 1.x)" preset and backwards compatible imports.
 STATUS_PASS = "Pass"
 STATUS_NO_ACTIVE = "No Active"
 STATUS_NO_GATE_EFFECT = "No Gate Effect"
@@ -27,9 +31,9 @@ STATUS_SHORT = "Short"
 #: Label used in the UI (filter dropdown / info bar) for an empty status.
 BLANK_DISPLAY = "(blank)"
 
-#: Known status values, only used for ordering / colouring.  The real value set
-#: is ALWAYS collected dynamically from the loaded data - unknown values are
-#: never rejected.
+#: Statuses of the legacy 1.x set, only used for ordering / colouring by code
+#: that has no label set at hand.  The real value set is ALWAYS collected
+#: dynamically from the loaded data - unknown values are never rejected.
 KNOWN_STATUSES: Tuple[str, ...] = (
     STATUS_PASS,
     STATUS_NO_ACTIVE,
@@ -38,7 +42,7 @@ KNOWN_STATUSES: Tuple[str, ...] = (
     STATUS_SHORT,
 )
 
-#: Row background colours by status (blank/unknown -> white).
+#: Legacy row background colours (the active label set decides in the UI).
 STATUS_COLORS: Dict[Optional[str], str] = {
     STATUS_NO_ACTIVE: "lightblue",
     STATUS_OPEN: "lightcoral",
@@ -47,7 +51,7 @@ STATUS_COLORS: Dict[Optional[str], str] = {
     None: "white",
 }
 
-#: Foreground colour used for the big overlay flash.
+#: Legacy overlay flash colours (the active label set decides in the UI).
 STATUS_OVERLAY_COLORS: Dict[Optional[str], str] = {
     STATUS_NO_ACTIVE: "#4da6ff",
     STATUS_OPEN: "#ff6b6b",

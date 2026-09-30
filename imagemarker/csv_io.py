@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .data_model import (
     STATUS_NO_ACTIVE,
@@ -23,17 +23,39 @@ from .data_model import (
     normalize_int,
 )
 
+if TYPE_CHECKING:  # pragma: no cover
+    from .label_sets import LabelSet
+
 BASE_HEADERS: Tuple[str, ...] = ("name", "row", "node", "label")
 
 Key = Tuple[str, int, int]
 
 
-def parse_label_value(value: Any) -> Optional[str]:
+#: Spellings the 1.x prototype accepted for its fixed statuses.  They are only
+#: applied when the target status exists in the active label set, so a set
+#: that defines ``GOOD`` keeps ``GOOD`` instead of turning it into ``Pass``.
+LEGACY_ALIASES: Dict[str, str] = {
+    "PASS": STATUS_PASS, "P": STATUS_PASS, "OK": STATUS_PASS, "GOOD": STATUS_PASS,
+    "TRUE": STATUS_PASS, "YES": STATUS_PASS, "1": STATUS_PASS,
+    "NO ACTIVE": STATUS_NO_ACTIVE, "NOACTIVE": STATUS_NO_ACTIVE,
+    "NO_ACT": STATUS_NO_ACTIVE, "INACTIVE": STATUS_NO_ACTIVE,
+    "OPEN": STATUS_OPEN, "OP": STATUS_OPEN, "-1": STATUS_OPEN,
+    "SHORT": STATUS_SHORT, "SH": STATUS_SHORT,
+}
+
+#: Spellings that always mean "no label".
+BLANK_ALIASES = frozenset({"NONE", "N/A", "NA", "AMBIGUOUS", "UNKNOWN", "UNCLASSIFIED"})
+
+
+def parse_label_value(value: Any, label_set: Optional["LabelSet"] = None) -> Optional[str]:
     """Normalise a label cell coming from an arbitrary CSV.
 
-    Legacy numeric markers (``1`` -> Pass, ``-1`` -> Open) and the known label
-    spellings are mapped onto the canonical status strings; anything else is
-    preserved verbatim.  Blank / ``None`` / ``"None"`` become ``None``.
+    Blank / ``None`` / ``"None"`` become ``None``.  When ``label_set`` is given,
+    a value that names one of its labels (case-insensitively) is returned in
+    the set's own spelling, and the legacy aliases of the 1.x prototype
+    (``1`` -> Pass, ``-1`` -> Open, ``good``/``ok`` -> Pass, ...) only apply
+    when the aliased status is itself part of the set.  Without a label set the
+    legacy behaviour is kept unchanged.  Anything else is preserved verbatim.
     """
     if value is None:
         return None
@@ -43,6 +65,17 @@ def parse_label_value(value: Any) -> Optional[str]:
         return None
 
     upper = text.upper()
+    if upper in BLANK_ALIASES:
+        return None
+
+    if label_set is not None:
+        label = label_set.find(text)
+        if label is not None:
+            return label.name
+        aliased = LEGACY_ALIASES.get(upper)
+        if aliased is not None and label_set.find(aliased) is not None:
+            return label_set.canonical(aliased)
+        return text
 
     try:
         number = int(upper)
@@ -55,18 +88,7 @@ def parse_label_value(value: Any) -> Optional[str]:
             return STATUS_OPEN
         return None
 
-    if upper in ("PASS", "P", "OK", "GOOD", "TRUE", "YES"):
-        return STATUS_PASS
-    if upper in ("NO ACTIVE", "NOACTIVE", "NO_ACT", "INACTIVE"):
-        return STATUS_NO_ACTIVE
-    if upper in ("OPEN", "OP"):
-        return STATUS_OPEN
-    if upper in ("SHORT", "SH"):
-        return STATUS_SHORT
-    if upper in ("NONE", "N/A", "NA", "AMBIGUOUS", "UNKNOWN", "UNCLASSIFIED"):
-        return None
-
-    return text
+    return LEGACY_ALIASES.get(upper, text)
 
 
 @dataclass
@@ -81,8 +103,12 @@ class CsvLabels:
         return len(self.labels)
 
 
-def load_label_csv(path: str) -> CsvLabels:
-    """Load ``(name, row, node) -> label`` plus any extra columns."""
+def load_label_csv(path: str, label_set: Optional["LabelSet"] = None) -> CsvLabels:
+    """Load ``(name, row, node) -> label`` plus any extra columns.
+
+    ``label_set`` (when given) canonicalises the label spelling, see
+    :func:`parse_label_value`.
+    """
     with open(path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         headers = list(reader.fieldnames or [])
@@ -112,7 +138,7 @@ def load_label_csv(path: str) -> CsvLabels:
             key: Key = (name, row_value or 0, node_value or 0)
 
             result.labels[key] = parse_label_value(
-                record.get(label_col) if label_col else None
+                record.get(label_col) if label_col else None, label_set
             )
             result.extras[key] = {
                 header: (record.get(header) or "") for header in extra_headers

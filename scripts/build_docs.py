@@ -113,7 +113,7 @@ def render(source: str) -> tuple[bytes, int]:
 <meta name="source" content="{source}"><meta name="source-sha256" content="{digest(text.encode())}">
 <title>{escape(title)}</title><style>{STYLE}</style></head>
 <body><a class="skip" href="#content">{skip}</a>
-<header class="masthead"><span class="brand">ImageMarker</span><span class="edition">2.0.0 · 2026-09-30</span></header>
+<header class="masthead"><span class="brand">ImageMarker</span><span class="edition">2.0.1 · 2026-09-30</span></header>
 <div class="layout"><details class="toc" open><summary>{toc_name}</summary><nav aria-label="{toc_name}"><ol>{toc}</ol></nav></details>
 <main id="content">{body}</main></div>
 <footer class="footer"><a href="{source_url}">{source}</a> · <a href="{REPO}">GitHub</a> · {'브라우저에서 Ctrl+P로 인쇄' if korean else 'Print with Ctrl+P'}<br>{'본문과 이미지는 오프라인에서 열립니다. GitHub 소스 링크에는 인터넷 연결이 필요합니다.' if korean else 'Text and images work offline. GitHub source links require internet access.'}</footer></body></html>
@@ -161,7 +161,7 @@ def main() -> int:
         documents.append({"source": source, "sourceSha256": digest((ROOT / source).read_text(encoding="utf-8-sig").encode()),
                           "output": OUTPUTS[source], "outputSha256": digest(data), "headingCount": headings})
     manifest = {"schemaVersion": 1, "ownershipMarker": "Owned by ImageMarker documentation builder",
-                "generator": GENERATOR, "repository": "yunhyok/imageMarker", "appVersion": "2.0.0",
+                "generator": GENERATOR, "repository": "yunhyok/imageMarker", "appVersion": "2.0.1",
                 "documentationDate": "2026-09-30", "sourceMarkdownCount": len(DOCUMENTS),
                 "generatedHtmlCount": len(DOCUMENTS), "documents": documents}
     generated[".html-companions.json"] = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()

@@ -519,6 +519,10 @@ def test_permission_error_is_reported_as_a_clean_exception(
     assert info.value.path == str(workbook_path)
 
 
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root ignores read-only file permissions",
+)
 def test_read_only_file_raises_excel_file_locked_error(workbook_path: Path) -> None:
     source = ExcelSource.load(str(workbook_path))
     backup = Path(source.backup_path)

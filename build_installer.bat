@@ -6,7 +6,7 @@ rem  build_installer.bat - Build the ImageMarker Windows installer
 rem
 rem  1. Checks that dist\ImageMarker.exe already exists (run build.bat
 rem     first if it doesn't - this script does NOT build the exe itself).
-rem  2. Locates the Inno Setup 6 compiler (ISCC.exe).
+rem  2. Locates the Inno Setup 6 or 7 compiler (ISCC.exe).
 rem  3. Compiles installer\ImageMarker.iss.
 rem  4. Prints the path to the resulting setup exe.
 rem ---------------------------------------------------------------------
@@ -32,13 +32,19 @@ if not exist "%EXE_PATH%" (
     exit /b 1
 )
 
-set "ISCC=C:\Users\yunhy\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
-if not exist "%ISCC%" (
-    set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+rem Prefer whatever ISCC.exe is on PATH, then the usual per-user and
+rem machine-wide install locations of Inno Setup 6 and 7.
+set "ISCC="
+set "PF86=%ProgramFiles(x86)%"
+for /f "delims=" %%p in ('where ISCC.exe 2^>nul') do if not defined ISCC set "ISCC=%%p"
+for %%v in (7 6) do (
+    if not defined ISCC if exist "%LocalAppData%\Programs\Inno Setup %%v\ISCC.exe" set "ISCC=%LocalAppData%\Programs\Inno Setup %%v\ISCC.exe"
+    if not defined ISCC if exist "%ProgramFiles%\Inno Setup %%v\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup %%v\ISCC.exe"
+    if not defined ISCC if exist "%PF86%\Inno Setup %%v\ISCC.exe" set "ISCC=%PF86%\Inno Setup %%v\ISCC.exe"
 )
-if not exist "%ISCC%" (
-    echo [build_installer.bat] ERROR: could not find ISCC.exe ^(Inno Setup 6 compiler^).
-    echo [build_installer.bat] Install Inno Setup 6 from https://jrsoftware.org/isdl.php
+if not defined ISCC (
+    echo [build_installer.bat] ERROR: could not find ISCC.exe ^(Inno Setup 6 or 7 compiler^).
+    echo [build_installer.bat] Install Inno Setup from https://jrsoftware.org/isdl.php
     popd
     exit /b 1
 )

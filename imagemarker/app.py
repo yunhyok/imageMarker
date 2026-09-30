@@ -9,6 +9,7 @@ Importing this module has no side effects - no window is created until
 from __future__ import annotations
 
 import os
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -1379,9 +1380,29 @@ class ImageMarkerApp:
         self.root.destroy()
 
 
+def _icon_path() -> Optional[str]:
+    """``assets/icon.ico`` next to the sources, or inside the PyInstaller bundle."""
+    candidates = []
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        candidates.append(os.path.join(bundle, "assets", "icon.ico"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(os.path.dirname(here), "assets", "icon.ico"))
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def main() -> None:
     """Start the ImageMarker application."""
     root = tk.Tk()
+    icon = _icon_path()
+    if icon:
+        try:
+            root.iconbitmap(default=icon)
+        except tk.TclError:  # not on Windows, or a broken .ico - keep the default
+            pass
     ImageMarkerApp(root)
     root.mainloop()
 

@@ -6,7 +6,7 @@
 ; Compile with the repo-root build_installer.bat, or directly with:
 ;   ISCC.exe installer\ImageMarker.iss
 ;
-; Requires Inno Setup 6: https://jrsoftware.org/isinfo.php
+; Requires Inno Setup 6 or 7: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "ImageMarker"
 #define MyAppVersion "2.0.0"

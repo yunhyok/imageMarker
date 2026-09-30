@@ -17,7 +17,7 @@ a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("assets/icon.ico", "assets")],  # window icon (see app._icon_path)
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},

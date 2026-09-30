@@ -1,10 +1,12 @@
-# ImageMarker 2.0.0 — Current implementation specification
+# ImageMarker 2.0.1 — Current implementation specification
 
-This document describes the implementation in the 2.0.0 source. It is a reference for maintainers and reviewers, not a list of future requirements. For operating instructions, see [English README](../README.md), [Korean guide](../README.ko.md), and [Korean HTML guide](../README.ko.companion.html).
+This document describes the implementation in the 2.0.1 source. It is a reference for maintainers and reviewers, not a list of future requirements. For operating instructions, see [English README](../README.md), [Korean guide](../README.ko.md), and [Korean HTML guide](../README.ko.companion.html).
 
 ## Purpose and boundaries
 
 ImageMarker is a Windows desktop review tool built with tkinter, Pillow, and openpyxl. A human examines existing per-device RGB slice PNGs alongside measurements and assigns/corrects a Status label. The initial label set is GOOD / BAD / OPEN; the active set can be changed.
+
+Each device is represented by one RGB image. There is no infrared path, pair discovery, missing-partner check, modality selector, or second image canvas. `_ir_` files are ignored even when mixed with valid RGB images. Excel sample mapping remains a join to measurements, not image pairing.
 
 The application does not create slices, identify defects automatically, compute electrical metrics, edit image files, or train/export a machine-learning model. It provides Excel Status write-back and a separate legacy label CSV export.
 
@@ -13,7 +15,7 @@ The application does not create slices, identify defects automatically, compute 
 | File | Responsibility |
 |---|---|
 | `main.py` | Calls `imagemarker.app.main()` when run |
-| `imagemarker/__init__.py` | Version `2.0.0` |
+| `imagemarker/__init__.py` | Version `2.0.1` |
 | `imagemarker/app.py` | Main tkinter window, sample-mapping dialog, source/save workflows, view refresh, key handling |
 | `imagemarker/data_model.py` | ImageRecord, scan results, parsing/normalization, ImageStore filtering/sorting/joins |
 | `imagemarker/excel_io.py` | Workbook loading, sample suggestions, backup and cell write-back |
@@ -36,7 +38,7 @@ The full filename pattern is `^(.+)_rgb_(\d+)_(\d+)\.png$`, matched case-insensi
 
 `scan_image_folder` walks the chosen folder recursively using `os.walk` with sorted directory and file names. Identity is `(name, row, node)`, including the exact prefix spelling. The first identity encountered wins and keeps its actual file path. Later duplicate paths are counted. Records are initially sorted by Name, Row, Node. Folders containing matching filenames are counted in scan metadata, even if their images are duplicates.
 
-A successful nonempty folder load replaces the store, detaches Excel and the displayed source path, resets CSV headers to the four base fields, and starts statuses/metrics blank. Initial store filter and sorting state reset. The filter-menu rebuild preserves check states for status names already present; it is not a guaranteed reset of every checkbox.
+The GUI first selects and scans the candidate folder. Cancel, read errors, and zero RGB results preserve the current store, source, selection, image, and dirty labels. Only after a nonempty scan does it prompt about unsaved changes; canceling that prompt also preserves the session. A successful nonempty folder load replaces the store, detaches Excel and the displayed source path, resets CSV headers to the four base fields, and starts statuses/metrics blank. Initial store filter and sorting state reset. The filter-menu rebuild preserves check states for status names already present; it is not a guaranteed reset of every checkbox.
 
 A filename can match even if the image is corrupt: decoding occurs on selection and an error appears on the canvas. Image loading does not remove its record.
 
@@ -46,7 +48,7 @@ Each ImageRecord holds the path, Status, original/baseline Status, six optional 
 
 The window starts at 1400×900 with a vertically draggable divider and image/table panes. The initial divider is approximately halfway down. Images are centered, preserve aspect ratio, and fit with a 0.95 scale margin; they may be enlarged as well as reduced.
 
-Toolbar actions are Load Folder, Open Excel..., Save to Excel, Load CSV, Save CSV, and Status filter. Label buttons follow the active set, with additional Revert and Clear buttons. The interface and messages use English.
+Toolbar actions are Load RGB Folder, Open Excel..., Save to Excel, Load CSV, Save CSV, and Status filter. Label buttons follow the active set, with additional Revert and Clear buttons. The interface and messages use English.
 
 Table columns are an unlabeled dirty-marker column, Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, and Status. It has vertical/horizontal scrollbars and extended selection. The image follows the first selected record; edits affect the stored selected records, falling back to the current record if there is no explicit selection.
 
@@ -100,7 +102,7 @@ The code does not rematch headers/rows at save time. Keep the worksheet layout u
 
 Permission errors in opening, copying, or saving are surfaced as file-lock/permission messages with a retry instruction. Other recoverable Excel errors also appear in dialogs. Successfully written records adopt their saved value as baseline. Skipped records remain dirty; the regular save dialog reports updated/skipped counts and a newly created backup.
 
-### Save-prompt limitation in 2.0.0
+### Save-prompt limitation in 2.0.1
 
 The save-before-close/source-change path also writes only records with Excel coordinates, but returns success after the write call even if skipped dirty records remain. It does not show the regular save's skipped-row summary. Therefore “Yes = save and close” or “Yes = save first” can proceed while edits on unmatched records have not been stored in Excel.
 
@@ -176,7 +178,7 @@ After edits/filter changes, a hidden current record moves to the next visible on
 
 ## Unsaved prompts and error handling
 
-Before loading a folder or another Excel/CSV source, a dirty session prompts Yes (save first), No (continue discarding), or Cancel (stay). Close uses the analogous save-and-close choices. Save routes to Excel when attached and otherwise to Save CSV. Canceling the CSV destination or a handled save error stops the pending action. See the partial Excel-save limitation above.
+Before replacing the session with a validated RGB folder or loading another Excel/CSV source, a dirty session prompts Yes (save first), No (continue discarding), or Cancel (stay). Close uses the analogous save-and-close choices. Save routes to Excel when attached and otherwise to Save CSV. Canceling the CSV destination or a handled save error stops the pending action. See the partial Excel-save limitation above.
 
 There is no autosave or session recovery. The normal operations do not write image files. A file-open, folder-read, CSV-load/save, label JSON, or Excel error is reported by the relevant GUI dialog or canvas message.
 
@@ -184,6 +186,6 @@ There is no autosave or session recovery. The normal operations do not write ima
 
 `build.bat` creates/reuses repository `.venv`, upgrades pip, installs requirements plus PyInstaller, and builds `ImageMarker.spec`. The spec produces one-file `dist/ImageMarker.exe`, console=False, bundles `assets/icon.ico`, and collects package submodules.
 
-`build_installer.bat` requires that exe first and searches PATH and standard per-user/machine directories for Inno Setup 7 or 6. `installer/ImageMarker.iss` defines 2.0.0 and emits `dist/ImageMarker-Setup-2.0.0.exe`. It offers English/Korean, per-user default or optional all-users installation, Start Menu shortcuts, optional desktop icon, and uninstall registration.
+`build_installer.bat` requires that exe first and searches PATH and standard per-user/machine directories for Inno Setup 7 or 6. `installer/ImageMarker.iss` defines 2.0.1 and emits `dist/ImageMarker-Setup-2.0.1.exe`. It offers English/Korean, per-user default or optional all-users installation, Start Menu shortcuts, optional desktop icon, and uninstall registration.
 
 Run `python -m pytest tests -q` and `python -c "import imagemarker.app"` from the repository root for development checks. Tests use synthetic workbook/image data rather than modifying measurement directories. GUI smoke tests skip if tkinter/Pillow or a display is unavailable; a skipped test is not GUI validation. Existing tests cover key/model/Excel behavior and selected GUI operations, not every source-switch, mixed CSV/Excel, or save-prompt sequence.

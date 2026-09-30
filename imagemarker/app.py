@@ -24,6 +24,7 @@ from .data_model import (
     ImageRecord,
     ImageStore,
     format_metric,
+    scan_image_folder,
     status_display,
 )
 from .excel_io import ExcelError, ExcelFileLockedError, ExcelSource
@@ -247,10 +248,10 @@ class ImageMarkerApp:
 
         tk.Button(
             toolbar,
-            text="Load Folder",
+            text="Load RGB Folder",
             command=self.load_folder,
             font=("Arial", 10, "bold"),
-            width=12,
+            width=16,
         ).pack(side=tk.LEFT, padx=3)
         tk.Button(
             toolbar, text="Open Excel...", command=self.open_excel, font=("Arial", 10), width=12
@@ -353,7 +354,7 @@ class ImageMarkerApp:
         menubar = tk.Menu(self.root)
         file_menu = tk.Menu(menubar, tearoff=False)
         file_menu.add_command(
-            label="Load Image Folder...", command=self.load_folder, accelerator="Ctrl+O"
+            label="Load RGB Image Folder...", command=self.load_folder, accelerator="Ctrl+O"
         )
         file_menu.add_separator()
         file_menu.add_command(label="Open Excel...", command=self.open_excel)
@@ -561,7 +562,7 @@ class ImageMarkerApp:
             "  Page Up / Page Down       move by 1000",
             "",
             "File",
-            "  Ctrl+O   load image folder      Ctrl+S   save to Excel",
+            "  Ctrl+O   load RGB image folder  Ctrl+S   save to Excel",
             "  Ctrl+L   edit label set",
         ]
         messagebox.showinfo("Keyboard shortcuts", "\n".join(lines))
@@ -569,7 +570,7 @@ class ImageMarkerApp:
     def _show_about(self) -> None:
         messagebox.showinfo(
             "About ImageMarker",
-            "ImageMarker %s\n\nReview RGB slice images and assign labels from a "
+            "ImageMarker %s\n\nReview one RGB slice image per device and assign labels from a "
             "configurable label set (GOOD / BAD / OPEN by default).\nOnly the "
             "Status column of the source workbook is ever modified." % __version__,
         )
@@ -597,24 +598,27 @@ class ImageMarkerApp:
     # ------------------------------------------------------------------ #
 
     def load_folder(self) -> None:
-        if not self.confirm_discard_changes("Loading a new folder"):
-            return
-        folder = filedialog.askdirectory(title="Select Image Folder")
+        folder = filedialog.askdirectory(title="Select RGB Image Folder")
         if not folder:
             return
         try:
-            scan = self.store.load_folder(folder)
+            scan = scan_image_folder(folder)
         except OSError as exc:
             messagebox.showerror("Error", "Failed to read the folder:\n%s" % exc)
             return
 
         if not scan.count:
             messagebox.showwarning(
-                "No Images",
-                "No valid RGB images found in the folder or any of its subfolders",
+                "No RGB Images",
+                "No valid RGB images found in the folder or any of its subfolders.\n"
+                "Expected filenames: <name>_rgb_<row>_<node>.png\n"
+                "The current session has not been changed.",
             )
             return
 
+        if not self.confirm_discard_changes("Loading a new RGB folder"):
+            return
+        self.store.set_records(scan.records)
         self.image_folder = folder
         self.scan_summary = self._format_scan_summary(scan)
         self.excel = None
@@ -638,7 +642,7 @@ class ImageMarkerApp:
 
     def open_excel(self) -> None:
         if not self.store.records:
-            messagebox.showwarning("No Data", "Please load an image folder first")
+            messagebox.showwarning("No Data", "Please load an RGB image folder first")
             return
         if not self.confirm_discard_changes("Loading another data file"):
             return

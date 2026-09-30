@@ -1,4 +1,4 @@
-# ImageMarker 2.0.0
+# ImageMarker 2.0.1
 
 A Windows desktop tool for **human review and labeling of per-device RGB slice images**. It shows images beside electrical measurements, lets a reviewer assign a label, and saves the result to an Excel workbook or CSV. It does not detect defects, calculate measurements, crop images, or train a model.
 
@@ -8,7 +8,7 @@ Documentation: [한국어 상세 안내](README.ko.md) · [한국어 HTML](READM
 
 If you have the packaged application, run `ImageMarker.exe`; the source installation below is unnecessary. The interface uses English menu and button names.
 
-1. Click **Load Folder** and choose a folder containing files named `<name>_rgb_<row>_<node>.png`, for example `SAM 1_rgb_01_07.png`. All subfolders are scanned.
+1. Click **Load RGB Folder** and choose a folder containing files named `<name>_rgb_<row>_<node>.png`, for example `SAM 1_rgb_01_07.png`. All subfolders are scanned.
 2. Choose a label set from **Labels**. The initial set is **GOOD / BAD / OPEN**. Select the set before loading CSV, because CSV label normalization uses the active set.
 3. For Excel, click **Open Excel...**, choose an `.xlsx` file, and confirm each sample-to-`Name` pairing. For CSV, click **Load CSV** instead.
 4. Select a table row, inspect its image and measurements, and use a label button or shortcut.
@@ -16,15 +16,21 @@ If you have the packaged application, run `ImageMarker.exe`; the source installa
 
 The upper image pane preserves the image's aspect ratio. Drag the divider to give the image or table more space. The table shows an unsaved `*` column, Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, and Status.
 
-![ImageMarker 2.0 main window with synthetic sample data](assets/screenshot.png)
+![ImageMarker 2.0.0 main window with synthetic sample data](assets/screenshot.png)
+
+The screenshot is from 2.0.0; the folder button reads **Load RGB Folder** in 2.0.1.
 
 ## Image folders and selection
+
+Each device needs only one RGB PNG. There is one full-width image view and no infrared image selector, paired-image requirement, or second image pane. Old `_ir_` files can remain in the folder; they are ignored. The Excel Name mapping dialog links RGB images to measurement rows, not to another image.
 
 Only PNG filenames matching the pattern are included, case-insensitively; other files, including manifests, are ignored. Row and Node are parsed as integers, so `01` and `1` refer to the same coordinate. There is no fixed requirement for 26 rows, 38 nodes, or a particular number of images.
 
 The scan sorts directory and file names, keeps the first occurrence of each `(name, row, node)`, and reports skipped duplicate counts. Initial order is Name, Row, Node. A sample is the filename prefix before `_rgb_`, not its containing folder's name.
 
 Click a row to view its image. Use Ctrl+click for separate rows and Shift+click for a range. Label, Clear, and Revert actions affect every selected row. Keyboard navigation selects one current row. Click a column heading to sort; clicking it again reverses the order, while the current image remains associated with its record.
+
+Selecting a folder with no matching RGB images, including an IR-only folder, leaves the current session unchanged. Canceling the folder picker also leaves edits intact. A valid replacement folder prompts about unsaved edits before it replaces the current records.
 
 If an image cannot be decoded, the canvas displays an error; its table record remains present.
 
@@ -48,7 +54,7 @@ Before the first write, `data.xlsx` is copied to `data.backup.xlsx` beside it. A
 
 Successfully written rows become clean, and Revert restores their newly saved value. Changed rows without Excel coordinates are skipped and remain unsaved; the regular save dialog reports their count. Close the workbook in Excel and retry if ImageMarker reports a lock or permission error. Keep the worksheet's row/column layout unchanged while it is attached: write-back uses the cell positions remembered during loading.
 
-**Before closing or loading another source, handle unmatched edits explicitly.** In 2.0.0, answering Yes to “save first” or “save and close” can continue even when Excel skipped these rows. Export them to CSV before leaving, or revert edits you do not need.
+**Before closing or loading another source, handle unmatched edits explicitly.** In 2.0.1, answering Yes to “save first” or “save and close” can continue even when Excel skipped these rows. Export them to CSV before leaving, or revert edits you do not need.
 
 ## CSV workflow and save scope
 
@@ -114,7 +120,7 @@ A label-set export has this shape; the top-level `name` names the **set**, and e
 
 A row is unsaved only while its current Status differs from its baseline. A folder-only session starts with a blank baseline; Excel and matching CSV loads set the baseline from their source; a successful save sets it to the saved value. Revert is not a history stack, and does not recover older saves. Reapplying the baseline also clears the `*` marker. Row text becomes bold while dirty, and the title displays an unsaved count.
 
-Loading a folder, loading Excel/CSV, or closing with edits prompts Yes/No/Cancel. Yes saves first (Excel when attached, otherwise CSV); No proceeds without saving; Cancel stays. Canceling the CSV destination or a handled save error also stops the pending action. The unmatched Excel limitation above still applies.
+Loading a valid RGB folder, loading Excel/CSV, or closing with edits prompts Yes/No/Cancel. Yes saves first (Excel when attached, otherwise CSV); No proceeds without saving; Cancel stays. Canceling the CSV destination or a handled save error also stops the pending action. The unmatched Excel limitation above still applies.
 
 ## Run and build from source
 
@@ -131,7 +137,7 @@ In PowerShell, run `.\.venv\Scripts\python.exe main.py` after creating the envir
 
 `build.bat` creates/reuses `.venv`, installs runtime dependencies and PyInstaller, and builds the one-file windowed `dist\ImageMarker.exe` using `ImageMarker.spec` and `assets/icon.ico`.
 
-After building the exe, `build_installer.bat` locates an Inno Setup 6 or 7 compiler and builds `dist\ImageMarker-Setup-2.0.0.exe` from `installer\ImageMarker.iss`. The installer offers English/Korean, defaults to per-user installation, adds a Start Menu shortcut, and offers a desktop icon. An all-users installation can also be chosen. Uninstall through Windows Settings → Apps.
+After building the exe, `build_installer.bat` locates an Inno Setup 6 or 7 compiler and builds `dist\ImageMarker-Setup-2.0.1.exe` from `installer\ImageMarker.iss`. The installer offers English/Korean, defaults to per-user installation, adds a Start Menu shortcut, and offers a desktop icon. An all-users installation can also be chosen. Uninstall through Windows Settings → Apps.
 
 For development validation:
 

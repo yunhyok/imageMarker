@@ -49,6 +49,8 @@ def make_store(statuses: List[Optional[str]]) -> ImageStore:
         ("sample_rgb_01_07.png", ("sample", 1, 7)),
         ("a_b_c_rgb_26_38.PNG", ("a_b_c", 26, 38)),
         ("sample_rgb_1_2.png", ("sample", 1, 2)),
+        ("sample_ir_01_07.png", None),
+        ("sample_IR_01_07.PNG", None),
         ("sample_rgb_01.png", None),
         ("sample_01_07.png", None),
         ("notes.txt", None),
@@ -107,6 +109,8 @@ def test_scan_walks_subfolders(tmp_path: Path) -> None:
     make_images(tmp_path / "s2_slices", ["s2_rgb_02_01.png", "s2_rgb_01_01.png"])
     make_images(tmp_path / "s2_slices" / "deeper", ["s3_rgb_05_05.png"])
     make_images(tmp_path, ["top_rgb_09_09.png", "notes.txt", "s1_slice_manifest.json"])
+    make_images(tmp_path / "s1_slices", ["s1_ir_01_01.png"])
+    make_images(tmp_path / "ir_only", ["s4_ir_01_01.png"])
 
     scan = scan_image_folder(str(tmp_path))
 

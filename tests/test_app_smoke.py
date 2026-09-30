@@ -68,6 +68,89 @@ def _load(app, folder: Path) -> None:
     app.root.update()
 
 
+@pytest.mark.parametrize("with_ir", [False, True])
+def test_rgb_folder_load_display_and_export(root, image_folder, tmp_path, monkeypatch, with_ir):
+    """One RGB per device works with no partner; obsolete IR is never decoded."""
+    import csv
+    from imagemarker import app as ui
+
+    if with_ir:
+        (image_folder / "sam1_ir_01_01.png").write_bytes(b"not an image")
+        infrared = image_folder / "infrared"
+        infrared.mkdir()
+        (infrared / "sam2_ir_01_01.png").write_bytes(b"not an image")
+    monkeypatch.setattr(ui.filedialog, "askdirectory", lambda **kwargs: str(image_folder))
+    monkeypatch.setattr(ui.messagebox, "showinfo", lambda *args, **kwargs: None)
+    app = ui.ImageMarkerApp(root, AppConfig())
+    # Map transparently so Tk lays out the real full-width image pane.
+    root.attributes("-alpha", 0.0)
+    root.deiconify()
+    root.update()
+    app.load_folder()
+    root.update_idletasks()
+    app.display_image()
+
+    assert len(app.store.records) == 6
+    assert len(app.tree.get_children()) == 6
+    assert app._rgb_image.getpixel((0, 0)) == (60, 60, 90)
+    assert app.rgb_canvas.winfo_width() > 100
+    assert app.rgb_canvas.winfo_width() == app.image_frame.winfo_width()
+    assert app.image_frame.winfo_children() == [app.rgb_canvas]
+    assert sum(app.rgb_canvas.type(item) == "image" for item in app.rgb_canvas.find_all()) == 1
+    _key(app, "g")
+    app.navigate(1)
+    assert app._rgb_image.getpixel((0, 0)) == (60, 120, 90)
+    _key(app, "b")
+
+    output = tmp_path / "labels.csv"
+    monkeypatch.setattr(ui.filedialog, "asksaveasfilename", lambda **kwargs: str(output))
+    assert app.save_csv()
+    with output.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 6
+    assert [row["label"] for row in rows[:2]] == ["GOOD", "BAD"]
+    assert {row["name"] for row in rows} == {"sam1"}
+
+
+@pytest.mark.parametrize("selection", ["empty", "ir_only", "cancel", "read_error", "decline"])
+def test_rejected_folder_keeps_current_session(root, image_folder, tmp_path, monkeypatch, selection):
+    from imagemarker import app as ui
+
+    app = ui.ImageMarkerApp(root, AppConfig())
+    _load(app, image_folder)
+    _key(app, "g")
+    record = app.store.current_record
+    app.source_path = "existing.csv"
+    before = (list(app.store.records), app.tree.get_children(), app._rgb_image,
+              app.image_folder, app.source_path, app.info_label.cget("text"))
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    if selection == "ir_only":
+        (candidate / "sam1_ir_01_01.png").write_bytes(b"obsolete IR")
+    elif selection == "decline":
+        candidate = image_folder
+    monkeypatch.setattr(ui.filedialog, "askdirectory",
+                        lambda **kwargs: "" if selection == "cancel" else str(candidate))
+    messages = []
+    for kind in ("showwarning", "showerror"):
+        monkeypatch.setattr(ui.messagebox, kind, lambda *args, **kwargs: messages.append(args))
+    confirmations = []
+    monkeypatch.setattr(app, "confirm_discard_changes", lambda action: confirmations.append(action) or False)
+    if selection == "read_error":
+        def fail_scan(folder):
+            raise OSError("unreadable")
+        monkeypatch.setattr(ui, "scan_image_folder", fail_scan)
+
+    app.load_folder()
+
+    assert (list(app.store.records), app.tree.get_children(), app._rgb_image,
+            app.image_folder, app.source_path, app.info_label.cget("text")) == before
+    assert app.store.current_record is record
+    assert record.status == "GOOD" and record.dirty
+    assert bool(confirmations) == (selection == "decline")
+    assert bool(messages) == (selection in {"empty", "ir_only", "read_error"})
+
+
 def test_default_set_hotkeys_and_ordinals(root, image_folder: Path):
     from imagemarker.app import ImageMarkerApp
 

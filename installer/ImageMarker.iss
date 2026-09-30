@@ -9,7 +9,7 @@
 ; Requires Inno Setup 6 or 7: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "ImageMarker"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.0.1"
 #define MyAppPublisher "yunhyok"
 #define MyAppExeName "ImageMarker.exe"
 

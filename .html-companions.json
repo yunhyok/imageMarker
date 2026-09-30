@@ -1,99 +1,33 @@
 {
-  "ownershipMarker": "Owned by Markdown HTML Companion v0.1.0",
   "schemaVersion": 1,
-  "generator": {
-    "name": "Markdown HTML Companion",
-    "version": "0.1.0"
-  },
-  "generatedAt": "2026-08-11T01:59:11.441416+00:00",
+  "ownershipMarker": "Owned by ImageMarker documentation builder",
+  "generator": "ImageMarker documentation builder 1.0",
   "repository": "yunhyok/imageMarker",
-  "baseBranch": "main",
-  "baseSha": "84945ab327c1f1e02de35d5be050f48b86eba7e0",
-  "branch": "codex/add-html-companions-20260811",
+  "appVersion": "2.0.0",
+  "documentationDate": "2026-09-30",
   "sourceMarkdownCount": 3,
   "generatedHtmlCount": 3,
   "documents": [
     {
       "source": "README.ko.md",
-      "sourceBlobSha": "8bb100013f7e009dddc61374c798e4f8b4c8f196",
-      "sourceSha256": "095f8a3a738d994e95ab4e8e498106954c5e2e2177a435e1b0c673389e9b0247",
+      "sourceSha256": "9fe79425917c10f7b8c7636f62e714f8f52ef6c61502425ed78ecf7e31509288",
       "output": "README.ko.companion.html",
-      "outputSha256": "591602b2124d4613e2fc0d8bfd539913ba38a6f39a5539151e015277766df34a",
-      "headingCount": 13,
-      "visualClassification": "NONE",
-      "visualTitle": "ImageMarker Korean documentation",
-      "diagramAdded": false,
-      "evidence": [
-        {
-          "lineStart": 5,
-          "lineEnd": 21,
-          "summary": "Korean translation repeats the English overview/features and workflow."
-        },
-        {
-          "lineStart": 102,
-          "lineEnd": 110,
-          "summary": "Korean Excel workflow repeats the same load/match/review/save semantics."
-        }
-      ],
-      "urlCount": 15
+      "outputSha256": "34c68aa46a8de3dd70898721d9a1c22bcd4c4541be1f2f4df769e0834720c602",
+      "headingCount": 36
     },
     {
       "source": "README.md",
-      "sourceBlobSha": "1f5e1f94251e308ef3ecf50ba8cd2e97e13c3f03",
-      "sourceSha256": "c2d88a01a3de14286fe53da06fa0334f3d61ec3cd4c4149ed16b8b7ff5f45283",
+      "sourceSha256": "ccc652ce8e8f4a0b23bfd02fb767cac068474b6ee7be921ece9004c3575c491b",
       "output": "README.companion.html",
-      "outputSha256": "bf7aec1945aa9b9cc184d32750c9215ee08db8c9ef49325bf862348b0fb47ab2",
-      "headingCount": 13,
-      "visualClassification": "PROCESS_FLOW",
-      "visualTitle": "ImageMarker review-to-Excel flow",
-      "diagramAdded": true,
-      "evidence": [
-        {
-          "lineStart": 11,
-          "lineEnd": 19,
-          "summary": "Recursive image loading, sortable review, and in-place Status-only Excel writes are defined."
-        },
-        {
-          "lineStart": 34,
-          "lineEnd": 39,
-          "summary": "One-time backup and changed-Status-cell write boundary are explicit."
-        },
-        {
-          "lineStart": 163,
-          "lineEnd": 186,
-          "summary": "Numbered Excel workflow runs from folder load through matching, review, and save."
-        }
-      ],
-      "urlCount": 16
+      "outputSha256": "8a2930a551541fb569c88bc84597d100fdb47f23e54b73edfd00fc838607189b",
+      "headingCount": 9
     },
     {
       "source": "docs/SPEC.md",
-      "sourceBlobSha": "8b1de37549dbb404fc68c7c9a7a1db22bbfe55d5",
-      "sourceSha256": "547d6db76bb3d6e56f006ba04f60d84d988d9a420947e274c74c1ba87791dc90",
+      "sourceSha256": "09c706436f41a7181534d8dd2212a2265e548319cbf213ef84682966c9ec8696",
       "output": "docs/SPEC.companion.html",
-      "outputSha256": "4cc1d57d5e09eb70fa9030c18d3b042856b1cfc5f0ecde9fab5b81112032d75c",
-      "headingCount": 15,
-      "visualClassification": "DATA_RELATIONSHIP",
-      "visualTitle": "Image/Excel identity and write-back",
-      "diagramAdded": true,
-      "evidence": [
-        {
-          "lineStart": 20,
-          "lineEnd": 49,
-          "summary": "Image prefixes map to sample numbers, Excel Names, and (row,node) records before per-record write-back."
-        },
-        {
-          "lineStart": 56,
-          "lineEnd": 74,
-          "summary": "Package layout assigns folder scan, Excel I/O, CSV I/O, and tests."
-        },
-        {
-          "lineStart": 116,
-          "lineEnd": 137,
-          "summary": "Excel join and Status-only write-back rules are explicit."
-        }
-      ],
-      "urlCount": 16
+      "outputSha256": "13209594a8605bd8fecd1eb3b5d3876649c1bc4d73eaadfe0f6fd328a79c8c06",
+      "headingCount": 14
     }
   ]
 }

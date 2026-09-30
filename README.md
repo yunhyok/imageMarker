@@ -1,264 +1,156 @@
-# ImageMarker
+# ImageMarker 2.0.0
 
-> 한국어 문서: [README.ko.md](README.ko.md)
+A Windows desktop tool for **human review and labeling of per-device RGB slice images**. It shows images beside electrical measurements, lets a reviewer assign a label, and saves the result to an Excel workbook or CSV. It does not detect defects, calculate measurements, crop images, or train a model.
 
-A Windows desktop tool for reviewing per-device RGB slice images and
-assigning `Status` labels from a **configurable label set** (GOOD / BAD /
-OPEN by default) directly against the lab's Excel spreadsheets (with legacy
-CSV support retained).
+Documentation: [한국어 상세 안내](README.ko.md) · [한국어 HTML](README.ko.companion.html) · [English HTML](README.companion.html) · [Implementation specification](docs/SPEC.md).
 
-## What it is
+## Start here
 
-ImageMarker loads a folder of per-device image slices
-(`<name>_rgb_<row>_<node>.png`) — **including every subfolder**, so a whole
-measurement day of `<sample>_slices` folders opens in one go — shows each
-image alongside its metrics in a sortable table, and lets a reviewer
-quickly step through the set and assign a `Status` label with single
-keystrokes. The labels themselves - their names, colours and hotkeys - come
-from a label set you can switch, edit, import and export from the `Labels`
-menu. When a source Excel workbook is loaded, edited statuses are
-written back **in place** — only the `Status` cells of rows you actually
-changed are touched; every other cell, formula, and format in the
-workbook is left untouched.
+If you have the packaged application, run `ImageMarker.exe`; the source installation below is unnecessary. The interface uses English menu and button names.
 
-## Features
+1. Click **Load Folder** and choose a folder containing files named `<name>_rgb_<row>_<node>.png`, for example `SAM 1_rgb_01_07.png`. All subfolders are scanned.
+2. Choose a label set from **Labels**. The initial set is **GOOD / BAD / OPEN**. Select the set before loading CSV, because CSV label normalization uses the active set.
+3. For Excel, click **Open Excel...**, choose an `.xlsx` file, and confirm each sample-to-`Name` pairing. For CSV, click **Load CSV** instead.
+4. Select a table row, inspect its image and measurements, and use a label button or shortcut.
+5. Click **Save to Excel** for workbook changes, or **Save CSV** for a CSV export. Changes remain in memory until saved.
 
-- **Image + data review** — image canvas on top (aspect-ratio preserved,
-  resizes with the window), full data table below (Name, Row, Node, ON,
-  OFF, ON/OFF, gm, Vth, Carrier Mobility, Status); the two sections are
-  separated by a draggable divider so you can freely resize either one.
-- **Recursive folder loading** — "Load Folder" walks the selected folder
-  *and every subfolder below it*, so pointing it at a day's measurement
-  folder loads all of its `<sample>_slices` subfolders at once. If the
-  same `(name, row, node)` image turns up in more than one subfolder the
-  first one found wins (the walk is alphabetical, so this is
-  deterministic) and the info bar reports how many duplicates were
-  skipped.
-- **Excel in-place Status update** — open the lab's `.xlsx` workbook and
-  match each loaded sample to its `Name` in the sheet (several samples can
-  be matched to their own `Name` in a single session), review/correct
-  statuses, then "Save to Excel" writes back only the changed `Status`
-  cells — across all matched samples at once. A one-time
-  `<file>.backup.xlsx` safety copy is made before the very first write.
-- **Status filtering** — a "Status filter" dropdown lists every distinct
-  status value currently present (including a `(blank)` entry) with
-  checkboxes, plus All/None quick actions; unchecked values are hidden
-  from the table and from keyboard navigation.
-- **Configurable label sets** — the `Labels` menu ships three presets:
-  **GOOD / BAD / OPEN** (default, hotkeys `G` `B` `O`), **PASS / FAIL**
-  (`P` `F`) and **Electrical (legacy 1.x)** (`Pass`, `No Active`,
-  `No Gate Effect`, `Open`, `Short` on `1`–`5`, `→` = `Open`, exactly as
-  ImageMarker 1.x). *Edit label set…* opens an editor where you add, rename,
-  reorder and recolour labels and bind any number of hotkeys to each (press
-  the key to capture it); duplicate names, duplicate keys and reserved
-  navigation keys are rejected. Sets can be exported to / imported from a
-  small JSON file so a team shares one definition, and the active set is
-  remembered between sessions.
-- **Keyboard-driven review** — navigate and relabel a large set of images
-  without touching the mouse: up/down arrows move by 1/10/100/1000 rows,
-  the label hotkeys (or digits `1`–`9`, which always follow the order of the
-  set) apply a label to the current selection, `0`/`Delete` clear it and
-  `←` undoes a mislabel by reverting the row to the label its source file
-  holds (multi-select is supported — a label key applies to every selected
-  row). An optional *auto-advance* moves to the next row after each label.
-- **Label bar** — one coloured button per label (with its hotkeys) plus
-  Revert / Clear, for mouse-driven review.
-- **Visual feedback** — table rows are color-coded with the label's colour,
-  and a large overlay flashes the label you just applied for one second.
-- **Column sorting** — click a column header to sort (toggle
-  ascending/descending); the current selection follows the item you were
-  viewing across the re-sort.
-- **Info bar** — shows current position, per-status counts (for both the
-  full set and the active filter), folder name (plus the number of image
-  subfolders walked and duplicates skipped), source file name, and the
-  unsaved-change count.
-- **Unsaved-change protection** — a row counts as unsaved for as long as
-  its label differs from the one in the source file, so undoing an edit
-  (with `←`, or by simply setting the original label again) also clears
-  the row's unsaved state; the window title and a marker column show
-  unsaved rows, and closing with unsaved changes prompts
-  save / discard / cancel.
-- **Legacy CSV support** — the original CSV workflow (`name,row,node,label`
-  + arbitrary extra columns) from the prototype tool still works via its
-  own load/save menu items.
+The upper image pane preserves the image's aspect ratio. Drag the divider to give the image or table more space. The table shows an unsaved `*` column, Name, Row, Node, ON, OFF, ON/OFF, gm, Vth, Carrier Mobility, and Status.
 
-## Requirements
+![ImageMarker 2.0 main window with synthetic sample data](assets/screenshot.png)
 
-- Windows
-- Python 3.9+ (to run from source)
-- Dependencies in `requirements.txt`: `pillow`, `openpyxl`
+## Image folders and selection
 
-## Run from source
+Only PNG filenames matching the pattern are included, case-insensitively; other files, including manifests, are ignored. Row and Node are parsed as integers, so `01` and `1` refer to the same coordinate. There is no fixed requirement for 26 rows, 38 nodes, or a particular number of images.
 
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
-```
+The scan sorts directory and file names, keeps the first occurrence of each `(name, row, node)`, and reports skipped duplicate counts. Initial order is Name, Row, Node. A sample is the filename prefix before `_rgb_`, not its containing folder's name.
 
-## Build Windows exe
+Click a row to view its image. Use Ctrl+click for separate rows and Shift+click for a range. Label, Clear, and Revert actions affect every selected row. Keyboard navigation selects one current row. Click a column heading to sort; clicking it again reverses the order, while the current image remains associated with its record.
 
-A one-file, windowed (no console) build is produced with PyInstaller via
-the included spec file.
+If an image cannot be decoded, the canvas displays an error; its table record remains present.
 
-```bat
-build.bat
-```
+## Excel workflow
 
-`build.bat` creates/reuses a local `.venv`, installs `requirements.txt`
-plus `pyinstaller`, runs `pyinstaller ImageMarker.spec`, and prints the
-path to the result:
+**Load images first.** The app reads the workbook's first worksheet; there is no sheet picker in the interface. Row 1 must contain `Name`, `Row`, `Node`, and `Status`. Header matching ignores case and surrounding spaces, and columns may be reordered. ON, OFF, ON/OFF, gm, Vth, and Carrier Mobility are optional.
 
-```
-dist\ImageMarker.exe
-```
+Rows with unusable Row or Node values are ignored. Integer numbers and text such as `01` or `1.0` work. Missing or nonnumeric measurements display blank; formulas are read through their cached values, and ImageMarker does not recalculate them.
 
-The build uses the icon at `assets/icon.ico` (already committed to the
-repo — regenerate it with `python assets/make_icon.py` if you ever need
-to change it).
+The matching dialog shows one row per loaded filename prefix:
 
-### Installer
+- It suggests a pairing only when both names contain the same sample number, such as `SAM 1`, `sam1`, or `sam_1`, and exactly one Excel Name has that number. Missing or ambiguous numbers leave the choice at **(skip)**.
+- Review every suggestion and choose the appropriate Excel Name manually where needed.
+- After confirmation, images join by integer `(Row, Node)` within that Name. Duplicate coordinates within one Excel Name use its first worksheet row.
+- **(skip)** and unmatched images remain available for review with blank Status and measurements. The load summary reports matched and unmatched counts. There is no separate visible “no data” badge on the table.
+- Choosing **(skip)** for every sample or canceling the dialog does not attach the new workbook.
 
-A Windows installer can be built on top of `dist\ImageMarker.exe` with
-[Inno Setup 6](https://jrsoftware.org/isinfo.php):
+**Save to Excel** and **Ctrl+S** write the changed Status cells of all matched images, including rows hidden by a filter, to the original workbook. Other columns are not assigned by the application. The workbook is reopened and saved through openpyxl; this is not a byte-preserving file patch.
 
-```bat
-build_installer.bat
-```
+Before the first write, `data.xlsx` is copied to `data.backup.xlsx` beside it. An existing backup is reused and never refreshed; it is not a copy of the most recent save. A save with no writable updates creates no backup.
 
-`build_installer.bat` checks that `dist\ImageMarker.exe` exists (build it
-first with `build.bat` if not), locates the Inno Setup 6 compiler
-(`ISCC.exe`), and compiles `installer\ImageMarker.iss`, producing:
+Successfully written rows become clean, and Revert restores their newly saved value. Changed rows without Excel coordinates are skipped and remain unsaved; the regular save dialog reports their count. Close the workbook in Excel and retry if ImageMarker reports a lock or permission error. Keep the worksheet's row/column layout unchanged while it is attached: write-back uses the cell positions remembered during loading.
 
-```
-dist\ImageMarker-Setup-2.0.0.exe
-```
+**Before closing or loading another source, handle unmatched edits explicitly.** In 2.0.0, answering Yes to “save first” or “save and close” can continue even when Excel skipped these rows. Export them to CSV before leaving, or revert edits you do not need.
 
-The installer installs per-user by default (no administrator prompt,
-though an admin/all-users install can be chosen instead), adds a Start
-Menu shortcut, offers an optional desktop icon, and can be removed later
-from Windows Settings → Apps like any other installed program.
+## CSV workflow and save scope
 
-## Keyboard shortcuts
+CSV is joined by the exact filename prefix plus integer Row and Node: `(name, row, node)`. Unlike Excel, there is no sample mapping dialog.
 
-### Navigation
+The loader reads UTF-8 with or without a BOM. Headers ignore surrounding spaces and case; the label column may be called `label`, `marker`, or `status` (in that priority). Output uses `name,row,node,label` plus the loaded extra headers, and is UTF-8 with BOM. Unknown headers are retained for matched images.
 
-| Key                | Action                    |
-|---------------------|---------------------------|
-| `↑` / `↓`           | Move selection by 1       |
-| `Ctrl` + `↑` / `↓`  | Move selection by 10      |
-| `Shift` + `↑` / `↓` | Move selection by 100     |
-| `Page Up` / `Page Down` | Move selection by 1000 |
+Values naming a label in the active set use that set's spelling (`good` → `GOOD`). Legacy aliases such as `ok` or `1` → `Pass`, and `-1` → `Open`, apply only when the target exists in the active set. Empty cells and `NONE`, `N/A`, `NA`, `AMBIGUOUS`, `UNKNOWN`, or `UNCLASSIFIED` become blank. Other values are preserved. CSV numbers are legacy aliases, not the active set's ordinal shortcuts.
 
-Navigation and the position counter operate on the currently filtered
-view when a status filter is active.
+**Save CSV** always asks for a destination and exports **all currently loaded image records**, including filtered-out rows and unchanged rows. It does not export CSV-only rows without loaded images or automatically add Excel measurement columns. Extra CSV fields are preserved only for records that carry them. Duplicate CSV keys use the last input row. Loading a CSV updates matching images only; unmatched images retain their previous status and data, so start with a fresh folder load when replacing a dataset completely.
 
-### Labeling
+A successful CSV export clears all unsaved markers and updates the Revert baseline. It does **not** attach the exported path as a new source, and it does **not** update Excel. When Excel remains attached, save to Excel **before** exporting CSV if both outputs are required: exporting first makes those labels clean, so a subsequent Excel save has no changes to write. Ctrl+S always means Excel save; use Save CSV in a CSV-only session.
 
-Applies to the current row, or to every selected row when multiple rows
-are selected. The label keys depend on the active label set (`Labels`
-menu); the defaults are:
+## Label sets and shortcuts
 
-| Key             | GOOD / BAD / OPEN (default) | Electrical (legacy 1.x) |
-|-----------------|-----------------------------|-------------------------|
-| `G` / `1`       | GOOD                        | Pass (`1`)              |
-| `B` / `2`       | BAD                         | No Active (`2`)         |
-| `O` / `3`       | OPEN                        | No Gate Effect (`3`)    |
-| `4`, `→`        | —                           | Open                    |
-| `5`             | —                           | Short                   |
-| `Left`          | revert to the original label | revert                 |
-| `0` or `Delete` | clear / blank               | clear / blank           |
+| Preset | Labels and explicit keys | Ordinal keys when enabled |
+|---|---|---|
+| GOOD / BAD / OPEN (initial default) | GOOD: G; BAD: B; OPEN: O | 1, 2, 3 |
+| PASS / FAIL | PASS: P; FAIL: F | 1, 2 |
+| Electrical (legacy 1.x) | Pass: 1; No Active: 2; No Gate Effect: 3; Open: 4 or →; Short: 5 | 1–5 already explicitly bound |
 
-Digits `1`–`9` always select labels in the order of the active set (this
-can be switched off in the `Labels` menu); letters work with or without
-Shift/Caps Lock. `Left` does not assign a label — it puts each selected row
-back to the label its source file holds (the value loaded from the Excel
-workbook or CSV, or the value of the last successful save; blank for rows
-with no source data), which also clears the row's unsaved marker.
+| Key | Action |
+|---|---|
+| ↑ / ↓ | Move by 1 visible row |
+| Ctrl+↑ / Ctrl+↓ | Move by 10 visible rows |
+| Shift+↑ / Shift+↓ | Move by 100 visible rows |
+| Page Up / Page Down | Move by 1000 visible rows |
+| ← | Revert each selected row to its current baseline |
+| 0 / Delete | Clear each selected row's Status |
+| Ctrl+O | Load an image folder |
+| Ctrl+S | Save to Excel |
+| Ctrl+L | Edit the label set |
 
-`Ctrl+O` loads an image folder, `Ctrl+S` saves to Excel, `Ctrl+L` opens the
-label set editor, and *Help → Keyboard shortcuts* lists the bindings of the
-active set.
+Navigation stops at the first/last visible row. Letter shortcuts ignore Shift/Caps Lock. Help → Keyboard shortcuts displays the active set's keys.
 
-## Label sets
+In **Labels**, switch presets, edit the active set, import/export its JSON, or change the digit and auto-advance options. Sets contain 1–9 labels, each with a unique name, `#RRGGBB` color, optional description, and zero or more explicit tkinter key symbols. The editor supports adding/removing/reordering labels, changing colors, and capturing/removing keys. Editing a preset creates a custom set unless it is unchanged. Switching or renaming labels does not rewrite existing statuses.
 
-`Labels` menu:
+Explicit keys take priority over numeric ordinals. For example, an explicit `2` bound to the first label overrides “2 means the second label.” Turning off ordinal keys leaves explicit digit bindings active, including the legacy preset's 1–5.
 
-- the three presets (radio items) — choosing one replaces the active set;
-- **Edit label set…** — editor for the active set (a preset edited this way
-  becomes a custom set; the presets themselves never change);
-- **Import label set…** / **Export label set…** — JSON files like the one
-  below;
-- **Digit keys 1-9 select labels in order** and **Auto-advance to next row
-  after labeling** toggles.
+Reserved keys cannot be assigned to a label: Up, Down, Page Up (`Prior`), Page Down (`Next`), Left, Delete, 0, Escape, Return, Tab, Space, and Backspace. Right may be assigned. Ctrl combinations are not label shortcuts. Unknown existing statuses remain visible and use white row backgrounds; known labels use a lightened version of their configured color.
 
-The active set and the two toggles are stored in
-`%APPDATA%\ImageMarker\config.json`.
+The active set, digit setting (initially on), and auto-advance setting (initially off) persist in `%APPDATA%\ImageMarker\config.json`. Image folders, source files, and session edits are not restored at startup. A missing or unreadable config falls back to defaults.
+
+Auto-advance applies only to a single selection, including Clear and reapplying the same value. It does not advance after Revert or a multi-row edit. With an active filter, if the changed row disappears, the app first selects the next visible row and then advances again; turn auto-advance off when reviewing a queue whose edited rows leave the filter.
+
+A label-set export has this shape; the top-level `name` names the **set**, and each `labels[].name` is the value written to Status:
 
 ```json
 {
   "schema_version": 1,
   "name": "GOOD / BAD / OPEN",
   "labels": [
-    {"name": "GOOD", "color": "#2e9e4f", "keys": ["g"], "description": "Device looks functional"},
-    {"name": "BAD",  "color": "#d64545", "keys": ["b"]},
+    {"name": "GOOD", "color": "#2e9e4f", "keys": ["g"]},
+    {"name": "BAD", "color": "#d64545", "keys": ["b"]},
     {"name": "OPEN", "color": "#e8a33d", "keys": ["o"]}
   ]
 }
 ```
 
-`name` is written verbatim to the `Status` cell; `keys` use tkinter key
-names (`g`, `1`, `Right`, `F5`, `Insert`, …). Up to 9 labels per set. Status
-values already present in a workbook that are not part of the active set are
-kept and shown as they are (white rows) — the set only decides what the
-hotkeys write and how known labels are coloured.
+## Filtering and unsaved changes
 
-## Excel workflow
+**Status filter** lists statuses currently present, including **(blank)** when applicable. All shows everything; None hides everything. Counts and navigation follow the visible view; the info bar also shows full-set counts and the unsaved count. Filtering affects visibility, not save scope. When statuses appear/disappear, the menu is rebuilt: retained choices keep their check state, and new values are checked by default.
 
-1. **Load Folder** — pick the folder holding the images. Subfolders are
-   included, so selecting a whole measurement folder loads every
-   `<sample>_slices` subfolder underneath it in one pass.
-2. **Open Excel…** — pick the `.xlsx` workbook (the first sheet is used
-   automatically).
-3. **Match samples to Excel names** — because image file names and the
-   Excel `Name` values don't share a common prefix, ImageMarker extracts
-   the sample number from both and pre-selects the best match. A dialog
-   then shows one row per loaded sample (image name prefix, image count,
-   and an Excel `Name` dropdown) so you can confirm or change each pairing
-   — several samples can be matched to their own `Name` in one session,
-   and any sample with no counterpart in the workbook can be set to
-   `(skip)`. Each sample's rows are then joined to its images by
-   `(Row, Node)` within its own `Name`, and a summary reports the
-   matched / unmatched counts per sample.
-4. **Review / edit** — matched rows populate the metric columns (ON, OFF,
-   ON/OFF, gm, Vth, Carrier Mobility) and existing `Status`; rows with no
-   matching Excel data are flagged and left blank. Correct statuses with
-   the keyboard shortcuts above.
-5. **Save to Excel** — enabled once there are unsaved changes. On first
-   save, a `<file>.backup.xlsx` copy is made next to the source workbook
-   (one-time safety backup). The original file is then reopened and only
-   the `Status` cells of the rows you changed are updated and saved —
-   nothing else in the workbook (other columns, the ~201 sweep-data
-   columns, formatting) is modified. If the file is open in Excel, a
-   message box asks you to close it and retry.
+A row is unsaved only while its current Status differs from its baseline. A folder-only session starts with a blank baseline; Excel and matching CSV loads set the baseline from their source; a successful save sets it to the saved value. Revert is not a history stack, and does not recover older saves. Reapplying the baseline also clears the `*` marker. Row text becomes bold while dirty, and the title displays an unsaved count.
 
-No other Excel column is ever edited by this tool, and no image files are
-ever modified.
+Loading a folder, loading Excel/CSV, or closing with edits prompts Yes/No/Cancel. Yes saves first (Excel when attached, otherwise CSV); No proceeds without saving; Cancel stays. Canceling the CSV destination or a handled save error also stops the pending action. The unmatched Excel limitation above still applies.
 
-## Legacy CSV support
+## Run and build from source
 
-The original CSV workflow from the prototype (`name,row,node,label`, plus
-any extra columns) is kept working via its own load/save menu items, for
-folders that don't have an Excel workbook. Labels are read in the active
-set's spelling (`good` → `GOOD`); the 1.x aliases (`1` → `Pass`,
-`-1` → `Open`, `ok` → `Pass`, …) are only applied when the aliased label
-exists in the active set, so `GOOD` is no longer silently turned into
-`Pass`.
+For source use, install Python 3.9+ with tkinter and the runtime dependencies Pillow and openpyxl. Run these commands from the repository root in Command Prompt:
 
-## Screenshots
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python main.py
+```
 
-![ImageMarker 2.0 main window (synthetic sample data)](assets/screenshot.png)
+In PowerShell, run `.\.venv\Scripts\python.exe main.py` after creating the environment and installing dependencies with that same interpreter; activation is optional. Importing `imagemarker.app` does not open a window.
 
-_Main window with the default GOOD / BAD / OPEN set: image canvas, label
-bar, hint line and the colour-coded data table (synthetic sample data)._
+`build.bat` creates/reuses `.venv`, installs runtime dependencies and PyInstaller, and builds the one-file windowed `dist\ImageMarker.exe` using `ImageMarker.spec` and `assets/icon.ico`.
+
+After building the exe, `build_installer.bat` locates an Inno Setup 6 or 7 compiler and builds `dist\ImageMarker-Setup-2.0.0.exe` from `installer\ImageMarker.iss`. The installer offers English/Korean, defaults to per-user installation, adds a Start Menu shortcut, and offers a desktop icon. An all-users installation can also be chosen. Uninstall through Windows Settings → Apps.
+
+For development validation:
+
+```bat
+python -m pip install pytest
+python -m pytest tests -q
+python -c "import imagemarker.app"
+```
+
+The IO/model/label-set tests use synthetic data. GUI smoke tests skip when tkinter/Pillow or a display are unavailable. See [SPEC](docs/SPEC.md) for implementation detail and test scope.
+
+## Maintain the documentation
+
+Edit `README.ko.md`, `README.md`, or `docs/SPEC.md`, then regenerate their HTML companions. Documentation generation requires Python 3.10+; its dependency is separate from the application requirements.
+
+```bat
+python -m pip install -r requirements-docs.txt
+python scripts/build_docs.py
+python scripts/build_docs.py --check
+```
+
+Each HTML file embeds its screenshot and works offline. Keep companion files in their relative folders to follow links between guides; GitHub source links need an internet connection. Use the browser's print command for PDF or paper output. The check command verifies source/output freshness, anchors, local links, and embedded images.

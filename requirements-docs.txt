@@ -1,0 +1,2 @@
+# Documentation generation only (Python 3.10+); not an application dependency.
+markdown-it-py==4.0.0

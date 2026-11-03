@@ -3,8 +3,8 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<meta name="source" content="README.md"><meta name="source-sha256" content="4e956c66f23915db5e8ecc9491224ba1dc6ecfd53f996b87257fb75536ab069b">
-<title>ImageMarker 2.0.1</title><style>
+<meta name="source" content="README.md"><meta name="source-sha256" content="7207c662cb6c5c5495597b48bbc6e58266f57b5dc6221b54cee86cfe135ac15b">
+<title>ImageMarker 2.0.2</title><style>
 :root {color-scheme:light dark;--bg:#f8fafb;--paper:#fff;--ink:#182a35;--muted:#526773;--line:#cdd8df;--accent:#096457;--soft:#e9f2ee;--code:#edf1f4}
 @media(prefers-color-scheme:dark){:root{--bg:#141d24;--paper:#1c2831;--ink:#e6edf2;--muted:#b2c1ca;--line:#41535e;--accent:#85d6be;--soft:#253c36;--code:#263640}}
 *{box-sizing:border-box}html{scroll-padding-top:1.5rem}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 system-ui,'Malgun Gothic',sans-serif;overflow-wrap:anywhere}
@@ -21,9 +21,9 @@ code,pre{font-family:Consolas,'Cascadia Code',monospace;font-size:.9em}code{back
 @media print{:root{color-scheme:light;--bg:#fff;--paper:#fff;--ink:#000;--muted:#444;--line:#bbb;--accent:#164b41;--soft:#eee;--code:#eee}.toc,.skip{display:none}.layout{display:block;padding:0}.masthead,.footer{padding:1rem 0}main{padding:0;font-size:10.5pt}h2,h3{break-after:avoid}tr,img,pre,.overview{break-inside:avoid}.table-wrap{overflow:visible}a{color:inherit;text-decoration:none}h1{font-size:24pt}}
 </style></head>
 <body><a class="skip" href="#content">Skip to content</a>
-<header class="masthead"><span class="brand">ImageMarker</span><span class="edition">2.0.1 · 2026-09-30</span></header>
+<header class="masthead"><span class="brand">ImageMarker</span><span class="edition">2.0.2 · 2026-09-30</span></header>
 <div class="layout"><details class="toc" open><summary>Contents</summary><nav aria-label="Contents"><ol><li><a href="#section-2">Start here</a></li><li><a href="#section-3">Image folders and selection</a></li><li><a href="#section-4">Excel workflow</a></li><li><a href="#section-5">CSV workflow and save scope</a></li><li><a href="#section-6">Label sets and shortcuts</a></li><li><a href="#section-7">Filtering and unsaved changes</a></li><li><a href="#section-8">Run and build from source</a></li><li><a href="#section-9">Maintain the documentation</a></li></ol></nav></details>
-<main id="content"><h1 id="section-1">ImageMarker 2.0.1</h1>
+<main id="content"><h1 id="section-1">ImageMarker 2.0.2</h1>
 <p>A Windows desktop tool for <strong>human review and labeling of per-device RGB slice images</strong>. It shows images beside electrical measurements, lets a reviewer assign a label, and saves the result to an Excel workbook or CSV. It does not detect defects, calculate measurements, crop images, or train a model.</p>
 <p>Documentation: <a href="README.ko.companion.html">한국어 상세 안내</a> · <a href="README.ko.companion.html">한국어 HTML</a> · <a href="README.companion.html">English HTML</a> · <a href="docs/SPEC.companion.html">Implementation specification</a>.</p>
 <section class="overview" aria-label="Review workflow"><p class="overview-title">Review workflow</p><ol class="flow"><li><span>01</span>Image folder</li><li><span>02</span>Label set</li><li><span>03</span>Excel / CSV</li><li><span>04</span>Human review</li><li><span>05</span>Save results</li></ol><p class="save-route">Need both outputs? Save Excel → verify the result → export CSV</p></section><h2 id="section-2">Start here</h2>
@@ -169,7 +169,7 @@ python main.py
 </code></pre>
 <p>In PowerShell, run <code>.\.venv\Scripts\python.exe main.py</code> after creating the environment and installing dependencies with that same interpreter; activation is optional. Importing <code>imagemarker.app</code> does not open a window.</p>
 <p><code>build.bat</code> creates/reuses <code>.venv</code>, installs runtime dependencies and PyInstaller, and builds the one-file windowed <code>dist\ImageMarker.exe</code> using <code>ImageMarker.spec</code> and <code>assets/icon.ico</code>.</p>
-<p>After building the exe, <code>build_installer.bat</code> locates an Inno Setup 6 or 7 compiler and builds <code>dist\ImageMarker-Setup-2.0.1.exe</code> from <code>installer\ImageMarker.iss</code>. The installer offers English/Korean, defaults to per-user installation, adds a Start Menu shortcut, and offers a desktop icon. An all-users installation can also be chosen. Uninstall through Windows Settings → Apps.</p>
+<p>After building the exe, <code>build_installer.bat</code> locates an Inno Setup 6 or 7 compiler and builds <code>dist\ImageMarker-Setup-2.0.2.exe</code> from <code>installer\ImageMarker.iss</code>. The installer offers English/Korean, defaults to Program Files and offers a folder chooser, adds a Start Menu shortcut, and offers a desktop icon. A per-user installation can also be chosen. Uninstall through Windows Settings → Apps.</p>
 <p>For development validation:</p>
 <pre><code class="language-bat">python -m pip install pytest
 python -m pytest tests -q

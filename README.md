@@ -1,4 +1,4 @@
-# ImageMarker 2.0.1
+# ImageMarker 2.0.2
 
 A Windows desktop tool for **human review and labeling of per-device RGB slice images**. It shows images beside electrical measurements, lets a reviewer assign a label, and saves the result to an Excel workbook or CSV. It does not detect defects, calculate measurements, crop images, or train a model.
 
@@ -137,7 +137,7 @@ In PowerShell, run `.\.venv\Scripts\python.exe main.py` after creating the envir
 
 `build.bat` creates/reuses `.venv`, installs runtime dependencies and PyInstaller, and builds the one-file windowed `dist\ImageMarker.exe` using `ImageMarker.spec` and `assets/icon.ico`.
 
-After building the exe, `build_installer.bat` locates an Inno Setup 6 or 7 compiler and builds `dist\ImageMarker-Setup-2.0.1.exe` from `installer\ImageMarker.iss`. The installer offers English/Korean, defaults to per-user installation, adds a Start Menu shortcut, and offers a desktop icon. An all-users installation can also be chosen. Uninstall through Windows Settings → Apps.
+After building the exe, `build_installer.bat` locates an Inno Setup 6 or 7 compiler and builds `dist\ImageMarker-Setup-2.0.2.exe` from `installer\ImageMarker.iss`. The installer offers English/Korean, defaults to Program Files and offers a folder chooser, adds a Start Menu shortcut, and offers a desktop icon. A per-user installation can also be chosen. Uninstall through Windows Settings → Apps.
 
 For development validation:
 

@@ -3,30 +3,30 @@
   "ownershipMarker": "Owned by ImageMarker documentation builder",
   "generator": "ImageMarker documentation builder 1.0",
   "repository": "yunhyok/imageMarker",
-  "appVersion": "2.0.1",
+  "appVersion": "2.0.2",
   "documentationDate": "2026-09-30",
   "sourceMarkdownCount": 3,
   "generatedHtmlCount": 3,
   "documents": [
     {
       "source": "README.ko.md",
-      "sourceSha256": "5483414b8adcc724f21f6445935c5ce15deb008b4e52bc6eaf7e66a8099d4994",
+      "sourceSha256": "37b7c91d2320e133a0340d7b0c56c22c22f1d6fcc32cc48335b9a9a72e8917ca",
       "output": "README.ko.companion.html",
-      "outputSha256": "c39a77431e47e3379908ce87490c771becc60cb257b969f050f7f244382998c9",
+      "outputSha256": "b19cc02108ab86e97ecbfd2ca58d670c03259b0770747533ce5ceab95b622c72",
       "headingCount": 36
     },
     {
       "source": "README.md",
-      "sourceSha256": "4e956c66f23915db5e8ecc9491224ba1dc6ecfd53f996b87257fb75536ab069b",
+      "sourceSha256": "7207c662cb6c5c5495597b48bbc6e58266f57b5dc6221b54cee86cfe135ac15b",
       "output": "README.companion.html",
-      "outputSha256": "090badcf36d0f1fe45b89f010da33980a9f3466e30cbe95892170114e09ad701",
+      "outputSha256": "78180645b41e6bbda408cfa185da60d91e7b575ed874e148a3f0d362e5d9eac5",
       "headingCount": 9
     },
     {
       "source": "docs/SPEC.md",
       "sourceSha256": "fda221d4a54c0107d645154ffe836402dbb088438ac51c9e7ca48ccc864ac82a",
       "output": "docs/SPEC.companion.html",
-      "outputSha256": "e513bf10da25ea2cd65c445b96185a2703c84d274593015f74f4e96f80cc5f7b",
+      "outputSha256": "79e723ed2b4dd999dca6b804889ac52321340d69d785fd11b8bfa8c4c871b0bc",
       "headingCount": 14
     }
   ]

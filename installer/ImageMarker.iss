@@ -9,7 +9,7 @@
 ; Requires Inno Setup 6 or 7: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "ImageMarker"
-#define MyAppVersion "2.0.1"
+#define MyAppVersion "2.0.2"
 #define MyAppPublisher "yunhyok"
 #define MyAppExeName "ImageMarker.exe"
 
@@ -21,11 +21,11 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
+DisableDirPage=no
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-; Per-user install by default (no admin prompt); Setup still shows a
-; dialog letting the user opt into an all-users/admin install instead.
-PrivilegesRequired=lowest
+; Keep existing per-user installations in their original scope.
+PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}

@@ -2,7 +2,7 @@
 
 **R2R TFT 소자 이미지를 확인하고 키보드로 판정 라벨을 기록하는 Windows 프로그램**
 
-이 설명서는 **ImageMarker 2.0.1**의 동작을 기준으로 작성했습니다. 문서 기준일은 **2026-09-30**입니다. 메뉴와 버튼은 화면에서 찾기 쉽도록 영문 이름을 그대로 적었습니다.
+이 설명서는 **ImageMarker 2.0.2**의 동작을 기준으로 작성했습니다. 문서 기준일은 **2026-09-30**입니다. 메뉴와 버튼은 화면에서 찾기 쉽도록 영문 이름을 그대로 적었습니다.
 
 [HTML 설명서](README.ko.companion.html) · [English](README.md) · [구현 명세](docs/SPEC.md) · [변경 이력](CHANGELOG.md)
 
@@ -37,7 +37,7 @@ Excel을 최종 결과물로 쓴다면 **Excel 저장을 먼저 끝낸 뒤** CSV
 
 ### 설치 파일 또는 실행 파일이 있는 경우
 
-`ImageMarker-Setup-2.0.1.exe`를 전달받았다면 설치한 뒤 시작 메뉴의 ImageMarker를 엽니다. 기본값은 사용자별 설치이며 바탕 화면 바로가기는 선택 사항입니다. 모든 사용자용 설치를 고르면 관리자 권한이 필요할 수 있습니다.
+`ImageMarker-Setup-2.0.2.exe`를 전달받았다면 설치한 뒤 시작 메뉴의 ImageMarker를 엽니다. 기본 위치는 Program Files이며 설치 폴더를 변경할 수 있습니다. 바탕 화면 바로가기는 선택 사항입니다. 모든 사용자용 설치를 고르면 관리자 권한이 필요할 수 있습니다.
 
 독립 실행 파일 `ImageMarker.exe`를 전달받았다면 바로 실행합니다. 이 두 방식에서는 Python을 별도로 설치할 필요가 없습니다. 저장소의 소스 코드 ZIP에는 빌드한 실행 파일이 반드시 포함되는 것은 아닙니다.
 
@@ -358,7 +358,7 @@ Excel이 연결되어 있으면 `Yes`는 Excel에 저장하고 그렇지 않으�
 .\build_installer.bat
 ```
 
-첫 명령은 `.venv`를 만들거나 재사용하여 실행 의존성과 PyInstaller를 설치하고 `dist\ImageMarker.exe`를 만듭니다. 두 번째 명령은 기존 실행 파일로 `dist\ImageMarker-Setup-2.0.1.exe`를 만듭니다. 설치 파일 빌드에는 **Inno Setup 6 또는 7**의 `ISCC.exe`가 필요합니다. `PATH`를 먼저 확인한 뒤 일반적인 사용자별·전체 사용자 설치 위치에서 컴파일러를 찾습니다.
+첫 명령은 `.venv`를 만들거나 재사용하여 실행 의존성과 PyInstaller를 설치하고 `dist\ImageMarker.exe`를 만듭니다. 두 번째 명령은 기존 실행 파일로 `dist\ImageMarker-Setup-2.0.2.exe`를 만듭니다. 설치 파일 빌드에는 **Inno Setup 6 또는 7**의 `ISCC.exe`가 필요합니다. `PATH`를 먼저 확인한 뒤 일반적인 사용자별·전체 사용자 설치 위치에서 컴파일러를 찾습니다.
 
 ### Markdown과 HTML 함께 갱신하기
 
